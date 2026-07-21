@@ -335,7 +335,7 @@ struct MainWindowView: View {
                 }
             }
         } else {
-            PortTable(items: displayedItems, selectedID: $selectedID, sortOrder: $sortOrder)
+            PortTable(items: displayedItems, store: store, selectedID: $selectedID, sortOrder: $sortOrder)
         }
     }
 
@@ -776,6 +776,7 @@ private struct MoreFiltersPopover: View {
 
 private struct PortTable: View {
     let items: [ReadablePortItem]
+    @ObservedObject var store: PortStore
     @Binding var selectedID: ReadablePortItem.ID?
     @Binding var sortOrder: [KeyPathComparator<ReadablePortItem>]
 
@@ -817,9 +818,9 @@ private struct PortTable: View {
             .width(min: 70, ideal: 90, max: 110)
 
             TableColumn("正在做什么", value: \.statusSortValue) { item in
-                FriendlyStatusLabel(item: item)
+                PortStatusCell(item: item, store: store)
             }
-            .width(min: 130, ideal: 165)
+            .width(min: 155, ideal: 205)
 
             TableColumn("访问范围/连接到", value: \.connectionSortValue) { item in
                 ConnectionDisplayLabel(item: item)
@@ -889,6 +890,39 @@ private struct FriendlyStatusLabel: View {
     }
 }
 
+private struct PortStatusCell: View {
+    let item: ReadablePortItem
+    @ObservedObject var store: PortStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var activitySummary: ListenerActivitySummary? {
+        store.listenerActivitySummary(for: item)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            FriendlyStatusLabel(item: item)
+            if let activitySummary, let description = activitySummary.inlineDescription {
+                Label(description, systemImage: "arrow.left.arrow.right.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(activityColor(for: activitySummary))
+                    .lineLimit(1)
+                    .transition(.opacity)
+                    .accessibilityLabel(activitySummary.accessibilityDescription)
+            }
+        }
+        .frame(minHeight: 34, alignment: .leading)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: activitySummary)
+    }
+
+    private func activityColor(for summary: ListenerActivitySummary) -> Color {
+        if case .ended = summary.recentChange?.kind, summary.connectionCount == 0 {
+            return .secondary
+        }
+        return .blue
+    }
+}
+
 private struct ConnectionDisplayLabel: View {
     let item: ReadablePortItem
 
@@ -951,6 +985,10 @@ private struct RecordDetailView: View {
                             .accessibilityAddTraits(.isHeader)
 
                         ConnectionDiagramView(item: item)
+
+                        if let activitySummary = store.listenerActivitySummary(for: item) {
+                            ListenerPortActivityView(summary: activitySummary)
+                        }
 
                         meaningSection(for: item)
 
@@ -1172,6 +1210,84 @@ private struct ConnectionDiagramView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(item.conclusion)
+    }
+}
+
+private struct ListenerPortActivityView: View {
+    let summary: ListenerActivitySummary
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label("端口活动", systemImage: "arrow.left.arrow.right.circle")
+                    .font(.headline)
+                Spacer()
+                Text(summary.currentDescription)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(summary.connectionCount > 0 ? Color.blue : Color.secondary)
+            }
+
+            if let recentChange = summary.recentChange {
+                Label(recentChange.kind.shortDescription, systemImage: recentChangeSymbol(recentChange.kind))
+                    .font(.callout)
+                    .foregroundStyle(recentChangeColor(recentChange.kind))
+                    .transition(.opacity)
+            }
+
+            if !summary.remoteEndpoints.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("当前连接对象")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(Array(summary.remoteEndpoints.prefix(3)), id: \.self) { endpoint in
+                        Label(endpoint, systemImage: "network")
+                            .font(.system(.caption, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                    if summary.remoteEndpoints.count > 3 {
+                        Text("另有 \(summary.remoteEndpoints.count - 3) 个连接对象")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Text("这里显示最近一次系统查询观察到的连接关系，不代表此刻一定正在传输数据。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(activityBackground, in: RoundedRectangle(cornerRadius: 9))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9)
+                .stroke(summary.connectionCount > 0 ? Color.blue.opacity(0.25) : Color(nsColor: .separatorColor), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("端口活动。\(summary.accessibilityDescription)连接关系不代表此刻一定正在传输数据。")
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: summary)
+    }
+
+    private var activityBackground: Color {
+        summary.connectionCount > 0 ? Color.blue.opacity(0.07) : Color(nsColor: .windowBackgroundColor)
+    }
+
+    private func recentChangeSymbol(_ kind: PortActivityChangeKind) -> String {
+        switch kind {
+        case .appeared: return "plus.circle.fill"
+        case .ended: return "checkmark.circle"
+        case .changed: return "arrow.triangle.2.circlepath"
+        }
+    }
+
+    private func recentChangeColor(_ kind: PortActivityChangeKind) -> Color {
+        switch kind {
+        case .appeared, .changed: return .blue
+        case .ended: return .secondary
+        }
     }
 }
 

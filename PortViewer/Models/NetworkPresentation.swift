@@ -28,6 +28,152 @@ enum NetworkAccessScope: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+struct ListenerActivityKey: Hashable, Sendable {
+    let pid: Int32
+    let transport: TransportProtocol
+    let localPort: Int
+
+    init?(listener record: PortRecord) {
+        guard record.isListening, let localPort = record.localPort else { return nil }
+        pid = record.pid
+        transport = record.transport
+        self.localPort = localPort
+    }
+
+    init?(connection record: PortRecord) {
+        guard record.isActiveConnection, let localPort = record.localPort else { return nil }
+        pid = record.pid
+        transport = record.transport
+        self.localPort = localPort
+    }
+}
+
+enum PortActivityChangeKind: Equatable, Sendable {
+    case appeared(Int)
+    case ended(Int)
+    case changed(appeared: Int, ended: Int)
+
+    var shortDescription: String {
+        switch self {
+        case .appeared(let count):
+            return "刚发现 \(count) 条新连接"
+        case .ended(let count):
+            return "刚有 \(count) 条连接结束"
+        case .changed(let appeared, let ended):
+            return "刚新增 \(appeared) 条、结束 \(ended) 条"
+        }
+    }
+
+    var accessibilityDescription: String {
+        switch self {
+        case .appeared(let count):
+            return "刚刚发现 \(count) 条新的连接活动"
+        case .ended(let count):
+            return "刚刚有 \(count) 条连接活动结束"
+        case .changed(let appeared, let ended):
+            return "连接刚刚发生变化，新增 \(appeared) 条，结束 \(ended) 条"
+        }
+    }
+}
+
+struct RecentPortActivityChange: Equatable, Sendable {
+    let kind: PortActivityChangeKind
+    let observedAt: Date
+}
+
+struct PortActivitySnapshot: Equatable, Sendable {
+    let connectionIDsByListener: [ListenerActivityKey: Set<String>]
+    let remoteEndpointsByListener: [ListenerActivityKey: [String]]
+
+    static func capture(from records: [PortRecord]) -> PortActivitySnapshot {
+        let listenerKeys = Set(records.compactMap { ListenerActivityKey(listener: $0) })
+        var connectionIDs = Dictionary(
+            uniqueKeysWithValues: listenerKeys.map { ($0, Set<String>()) }
+        )
+        var remoteEndpoints = Dictionary(
+            uniqueKeysWithValues: listenerKeys.map { ($0, Set<String>()) }
+        )
+
+        for record in records {
+            guard let key = ListenerActivityKey(connection: record), listenerKeys.contains(key) else { continue }
+            connectionIDs[key, default: []].insert(record.id)
+            remoteEndpoints[key, default: []].insert(record.remoteEndpoint)
+        }
+
+        return PortActivitySnapshot(
+            connectionIDsByListener: connectionIDs,
+            remoteEndpointsByListener: remoteEndpoints.mapValues { $0.sorted() }
+        )
+    }
+
+    func changes(
+        comparedTo previous: PortActivitySnapshot,
+        observedAt: Date
+    ) -> [ListenerActivityKey: RecentPortActivityChange] {
+        let allKeys = Set(connectionIDsByListener.keys).union(previous.connectionIDsByListener.keys)
+        var result: [ListenerActivityKey: RecentPortActivityChange] = [:]
+
+        for key in allKeys {
+            let currentIDs = connectionIDsByListener[key] ?? []
+            let previousIDs = previous.connectionIDsByListener[key] ?? []
+            let appearedCount = currentIDs.subtracting(previousIDs).count
+            let endedCount = previousIDs.subtracting(currentIDs).count
+
+            let kind: PortActivityChangeKind
+            switch (appearedCount, endedCount) {
+            case (0, 0):
+                continue
+            case (_, 0):
+                kind = .appeared(appearedCount)
+            case (0, _):
+                kind = .ended(endedCount)
+            default:
+                kind = .changed(appeared: appearedCount, ended: endedCount)
+            }
+            result[key] = RecentPortActivityChange(kind: kind, observedAt: observedAt)
+        }
+
+        return result
+    }
+}
+
+struct ListenerActivitySummary: Equatable, Sendable {
+    let connectionCount: Int
+    let remoteEndpoints: [String]
+    let recentChange: RecentPortActivityChange?
+
+    var currentDescription: String {
+        connectionCount == 0 ? "当前未观察到连接" : "当前有 \(connectionCount) 条连接活动"
+    }
+
+    var inlineDescription: String? {
+        if let recentChange {
+            return "\(recentChange.kind.shortDescription) · 当前 \(connectionCount) 条"
+        }
+        return connectionCount > 0 ? "当前 \(connectionCount) 条连接活动" : nil
+    }
+
+    var accessibilityDescription: String {
+        if let recentChange {
+            return "\(recentChange.kind.accessibilityDescription)。\(currentDescription)。"
+        }
+        return "\(currentDescription)。"
+    }
+
+    static func make(
+        for item: ReadablePortItem,
+        snapshot: PortActivitySnapshot,
+        recentChanges: [ListenerActivityKey: RecentPortActivityChange]
+    ) -> ListenerActivitySummary? {
+        guard let key = ListenerActivityKey(listener: item.representative) else { return nil }
+        return ListenerActivitySummary(
+            connectionCount: snapshot.connectionIDsByListener[key]?.count ?? 0,
+            remoteEndpoints: snapshot.remoteEndpointsByListener[key] ?? [],
+            recentChange: recentChanges[key]
+        )
+    }
+}
+
 extension PortRecord {
     var normalizedState: String? {
         guard let state = state?.trimmingCharacters(in: .whitespacesAndNewlines), !state.isEmpty else {

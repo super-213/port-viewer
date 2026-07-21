@@ -84,6 +84,7 @@ final class PortStore: ObservableObject {
     @Published private(set) var lastQueryDuration: TimeInterval?
     @Published private(set) var isRefreshing = false
     @Published private(set) var isPaused = false
+    @Published private(set) var recentListenerActivity: [ListenerActivityKey: RecentPortActivityChange] = [:]
     @Published var terminationPrompt: TerminationPrompt?
     @Published var feedback: OperationFeedback?
     @Published var requestedSelectionID: String?
@@ -97,9 +98,16 @@ final class PortStore: ObservableObject {
     private let queryClient: LsofClient
     private let processController: ProcessController
     private var refreshLoop: Task<Void, Never>?
+    private var activityFeedbackCleanupTask: Task<Void, Never>?
     private var queuedRefresh = false
     private var isMainWindowVisible = true
     private var didRequestInitialWindow = false
+    private var listenerActivitySnapshot = PortActivitySnapshot(
+        connectionIDsByListener: [:],
+        remoteEndpointsByListener: [:]
+    )
+    private var hasListenerActivityBaseline = false
+    private let activityFeedbackLifetime: TimeInterval = 5
 
     init(
         queryClient: LsofClient = LsofClient(),
@@ -111,6 +119,7 @@ final class PortStore: ObservableObject {
 
     deinit {
         refreshLoop?.cancel()
+        activityFeedbackCleanupTask?.cancel()
     }
 
     var listeningCount: Int { records.lazy.filter(\.isListening).count }
@@ -175,6 +184,14 @@ final class PortStore: ObservableObject {
 
     func dismissFeedback() {
         feedback = nil
+    }
+
+    func listenerActivitySummary(for item: ReadablePortItem) -> ListenerActivitySummary? {
+        ListenerActivitySummary.make(
+            for: item,
+            snapshot: listenerActivitySnapshot,
+            recentChanges: recentListenerActivity
+        )
     }
 
     func prepareToTerminate(_ staleRecord: PortRecord) async {
@@ -314,6 +331,7 @@ final class PortStore: ObservableObject {
     }
 
     private func apply(_ snapshot: PortSnapshot) {
+        updateListenerActivity(with: snapshot)
         records = snapshot.records
         lastQueryDuration = snapshot.duration
         if !snapshot.isPartial {
@@ -325,6 +343,52 @@ final class PortStore: ObservableObject {
             state = .partial("lsof 返回了部分结果；已展示可安全解析的数据。")
         } else {
             state = snapshot.records.isEmpty ? .empty : .ready
+        }
+    }
+
+    private func updateListenerActivity(with snapshot: PortSnapshot) {
+        // Partial lsof output can omit live sockets, so never treat it as evidence that a connection ended.
+        guard !snapshot.isPartial else { return }
+
+        let nextSnapshot = PortActivitySnapshot.capture(from: snapshot.records)
+        removeExpiredListenerActivity(referenceDate: snapshot.capturedAt)
+
+        if hasListenerActivityBaseline {
+            let changes = nextSnapshot.changes(
+                comparedTo: listenerActivitySnapshot,
+                observedAt: snapshot.capturedAt
+            )
+            recentListenerActivity.merge(changes) { _, new in new }
+        } else {
+            hasListenerActivityBaseline = true
+        }
+
+        listenerActivitySnapshot = nextSnapshot
+        scheduleActivityFeedbackCleanup()
+    }
+
+    private func removeExpiredListenerActivity(referenceDate: Date = Date()) {
+        recentListenerActivity = recentListenerActivity.filter {
+            referenceDate.timeIntervalSince($0.value.observedAt) < activityFeedbackLifetime
+        }
+    }
+
+    private func scheduleActivityFeedbackCleanup() {
+        activityFeedbackCleanupTask?.cancel()
+        guard let nextExpiration = recentListenerActivity.values
+            .map({ $0.observedAt.addingTimeInterval(activityFeedbackLifetime) })
+            .min() else { return }
+
+        let delay = max(0, nextExpiration.timeIntervalSinceNow)
+        activityFeedbackCleanupTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            self.removeExpiredListenerActivity()
+            self.scheduleActivityFeedbackCleanup()
         }
     }
 

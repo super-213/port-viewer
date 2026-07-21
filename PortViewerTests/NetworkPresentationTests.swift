@@ -107,6 +107,64 @@ final class NetworkPresentationTests: XCTestCase {
         XCTAssertTrue(udpItem.conclusion.contains("无固定连接的数据"))
     }
 
+    func testListenerActivitySnapshotReportsAppearedAndEndedConnections() throws {
+        let listener = makeRecord(address: "127.0.0.1")
+        let connection = makeRecord(
+            address: "127.0.0.1",
+            descriptor: "8",
+            remoteAddress: "127.0.0.1",
+            remotePort: 53124,
+            state: "ESTABLISHED"
+        )
+        let observedAt = Date(timeIntervalSince1970: 20)
+        let baseline = PortActivitySnapshot.capture(from: [listener])
+        let active = PortActivitySnapshot.capture(from: [listener, connection])
+        let key = try XCTUnwrap(ListenerActivityKey(listener: listener))
+
+        XCTAssertEqual(
+            active.changes(comparedTo: baseline, observedAt: observedAt)[key]?.kind,
+            .appeared(1)
+        )
+
+        let item = try XCTUnwrap(ReadablePortItem.group([listener]).first)
+        let summary = try XCTUnwrap(ListenerActivitySummary.make(
+            for: item,
+            snapshot: active,
+            recentChanges: active.changes(comparedTo: baseline, observedAt: observedAt)
+        ))
+        XCTAssertEqual(summary.connectionCount, 1)
+        XCTAssertEqual(summary.remoteEndpoints, ["127.0.0.1:53124"])
+        XCTAssertEqual(summary.currentDescription, "当前有 1 条连接活动")
+        XCTAssertEqual(summary.inlineDescription, "刚发现 1 条新连接 · 当前 1 条")
+
+        XCTAssertEqual(
+            baseline.changes(comparedTo: active, observedAt: observedAt)[key]?.kind,
+            .ended(1)
+        )
+    }
+
+    func testListenerActivityDoesNotTreatTCPStateChangeAsANewConnection() {
+        let listener = makeRecord(address: "127.0.0.1")
+        let establishing = makeRecord(
+            address: "127.0.0.1",
+            descriptor: "8",
+            remoteAddress: "127.0.0.1",
+            remotePort: 53124,
+            state: "SYN_SENT"
+        )
+        let established = makeRecord(
+            address: "127.0.0.1",
+            descriptor: "8",
+            remoteAddress: "127.0.0.1",
+            remotePort: 53124,
+            state: "ESTABLISHED"
+        )
+        let before = PortActivitySnapshot.capture(from: [listener, establishing])
+        let after = PortActivitySnapshot.capture(from: [listener, established])
+
+        XCTAssertTrue(after.changes(comparedTo: before, observedAt: Date()).isEmpty)
+    }
+
     private func makeRecord(
         address: String,
         descriptor: String = "4",
