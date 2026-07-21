@@ -8,7 +8,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("菜单栏") {
-                Toggle("在图标旁显示监听端口数量", isOn: $menuBarShowsCount)
+                Toggle("在图标旁显示等待连接数量", isOn: $menuBarShowsCount)
             }
 
             Section("自动刷新") {

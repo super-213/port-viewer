@@ -9,7 +9,7 @@ enum ProcessSignalError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .permissionDenied:
-            return "权限不足，无法结束该进程。MVP 暂不申请管理员权限。"
+            return "权限不足，无法结束该进程。当前版本不申请管理员权限。"
         case .processMissing:
             return "进程已在操作前自行退出。"
         case .failed(let code):

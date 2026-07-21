@@ -115,6 +115,9 @@ final class PortStore: ObservableObject {
 
     var listeningCount: Int { records.lazy.filter(\.isListening).count }
     var activeConnectionCount: Int { records.lazy.filter(\.isActiveConnection).count }
+    var otherNetworkActivityCount: Int {
+        records.lazy.filter { !$0.isListening && !$0.isActiveConnection }.count
+    }
 
     var statusSymbolName: String {
         if isPaused { return "pause.circle" }
@@ -178,7 +181,7 @@ final class PortStore: ObservableObject {
         guard staleRecord.belongsToCurrentUser else {
             feedback = OperationFeedback(
                 kind: .error,
-                message: "\(staleRecord.processName) 属于用户 \(staleRecord.user)。MVP 不申请管理员权限，无法结束其他用户的进程。"
+                message: "\(staleRecord.processName) 属于用户 \(staleRecord.user)。当前版本不申请管理员权限，无法结束其他用户的进程。"
             )
             return
         }

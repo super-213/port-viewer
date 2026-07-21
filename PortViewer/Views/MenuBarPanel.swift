@@ -31,7 +31,7 @@ struct StatusItemLabel: View {
     private var accessibilityLabel: String {
         if store.isPaused { return "Port Viewer，自动刷新已暂停" }
         if store.state.issueMessage != nil { return "Port Viewer，查询异常" }
-        return "Port Viewer，监听端口 \(store.listeningCount) 个"
+        return "Port Viewer，等待连接 \(store.listeningCount) 条"
     }
 }
 
@@ -98,7 +98,7 @@ struct MenuBarPanel: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("搜索端口或进程", text: $searchText)
+            TextField("搜索应用名称或端口，例如 3000", text: $searchText)
                 .textFieldStyle(.plain)
                 .accessibilityLabel("菜单栏端口搜索")
             if !searchText.isEmpty {
@@ -119,9 +119,11 @@ struct MenuBarPanel: View {
 
     private var metrics: some View {
         HStack(spacing: 0) {
-            metric(title: "监听", value: store.listeningCount, symbol: "dot.radiowaves.left.and.right", color: .green)
+            metric(title: "等待连接", value: store.listeningCount, symbol: "dot.radiowaves.left.and.right", color: .green)
             Divider().frame(height: 28)
-            metric(title: "活跃连接", value: store.activeConnectionCount, symbol: "arrow.left.arrow.right", color: .blue)
+            metric(title: "连接活动", value: store.activeConnectionCount, symbol: "arrow.left.arrow.right", color: .blue)
+            Divider().frame(height: 28)
+            metric(title: "其他网络活动", value: store.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: .secondary)
         }
         .frame(maxWidth: .infinity)
     }
@@ -147,7 +149,7 @@ struct MenuBarPanel: View {
                 Image(systemName: searchText.isEmpty ? "checkmark.circle" : "magnifyingglass")
                     .font(.title2)
                     .foregroundStyle(.secondary)
-                Text(searchText.isEmpty ? "当前没有 TCP 监听端口" : "没有匹配的监听端口")
+                Text(searchText.isEmpty ? "当前没有应用在等待连接" : "没有匹配的等待连接活动")
                     .font(.callout)
                 if !searchText.isEmpty {
                     Button("清除搜索") { searchText = "" }
@@ -170,7 +172,7 @@ struct MenuBarPanel: View {
                                 Text(record.processName)
                                     .lineLimit(1)
                                 Spacer()
-                                Text("监听")
+                                Text("等待连接")
                                     .font(.caption)
                                     .foregroundStyle(.green)
                             }
@@ -179,7 +181,7 @@ struct MenuBarPanel: View {
                             .frame(height: 34)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("端口 \(record.localPortText)，\(record.processName)，监听中")
+                        .accessibilityLabel("端口 \(record.localPortText)，\(record.processName)，正在等待连接")
                     }
                 }
                 .padding(.vertical, 6)

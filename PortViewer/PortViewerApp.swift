@@ -25,7 +25,7 @@ struct PortViewerApp: App {
             MainWindowView(store: store)
                 .task { store.start() }
         }
-        .defaultSize(width: 1_140, height: 760)
+        .defaultSize(width: 1_180, height: 820)
         .windowResizability(.contentMinSize)
         .commands {
             PortViewerCommands(store: store)
@@ -50,7 +50,7 @@ struct PortViewerCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .textEditing) {
-            Button("查找端口或进程…") {
+            Button("查找应用或端口…") {
                 NotificationCenter.default.post(name: .focusPortSearch, object: nil)
             }
             .keyboardShortcut("f", modifiers: .command)
