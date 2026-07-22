@@ -178,6 +178,7 @@ struct MainWindowView: View {
         } else {
             PortTable(
                 items: viewModel.displayedItems,
+                allItems: viewModel.allItems,
                 portViewModel: portViewModel,
                 selectedID: $viewModel.selectedID,
                 sortOrder: $viewModel.sortOrder
@@ -203,7 +204,7 @@ private struct OverviewBar: View {
             case .waiting: return "TCP 应用开放了编号入口，正在等待其他程序连接。数量来自底层技术记录，不代表风险高低。"
             case .connections: return "应用与另一个地址之间存在建立中、已建立或关闭中的 TCP 连接。"
             case .other: return "包含不保持固定连接状态的 UDP，以及暂时无法归入前两类的网络记录。"
-            case .port: return "端口是应用在这台 Mac 上接收或发送网络数据时使用的编号入口。端口号能帮助你找到由哪个应用占用。"
+            case .port: return "本机端口是应用在这台 Mac 上收发网络数据时使用的编号。服务端口用于等待连接；应用连接其他服务时也会使用本机连接端口。相同端口不一定是同一连接，多个连接端口也不代表应用对外开放了多个服务。"
             }
         }
     }
@@ -318,7 +319,7 @@ private struct FilterBar: View {
                 Spacer()
                 ConceptHelpButton(
                     title: "列表中的信息",
-                    text: "“端口”是应用使用的编号入口；“正在做什么”把 TCP 状态转换成中文；“访问范围/连接到”说明谁可能访问监听端口，或当前连接的另一端。"
+                    text: "“本机端口”是应用在这台 Mac 上使用的编号；服务端口用于等待连接，连接端口用于连接其他服务。“正在做什么”把 TCP 状态转换成中文；“访问范围/连接到”说明谁可能访问监听端口，或当前连接的另一端。"
                 )
             }
 
@@ -417,14 +418,32 @@ private struct MoreFiltersPopover: View {
 
 private struct PortTable: View {
     let items: [ReadablePortItem]
+    let allItems: [ReadablePortItem]
     let portViewModel: PortViewModel
     @Binding var selectedID: ReadablePortItem.ID?
     @Binding var sortOrder: [ReadablePortSortComparator]
+    @State private var expandedProcessGroups: Set<ReadablePortItem.ID> = []
 
     var body: some View {
         Table(items, selection: $selectedID, sortOrder: $sortOrder) {
             TableColumn("应用/服务", sortUsing: ReadablePortSortComparator(field: .process)) { item in
-                HStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 7) {
+                    if item.processCount > 1 {
+                        Button {
+                            if expandedProcessGroups.contains(item.id) {
+                                expandedProcessGroups.remove(item.id)
+                            } else {
+                                expandedProcessGroups.insert(item.id)
+                            }
+                        } label: {
+                            Image(systemName: expandedProcessGroups.contains(item.id) ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .frame(width: 12, height: 20)
+                        }
+                        .buttonStyle(.plain)
+                        .help(expandedProcessGroups.contains(item.id) ? "收起组成此服务的进程" : "展开组成此服务的进程")
+                        .accessibilityLabel(expandedProcessGroups.contains(item.id) ? "收起进程列表" : "展开进程列表")
+                    }
                     ProcessIconView(record: item.representative, size: 20)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 5) {
@@ -442,21 +461,40 @@ private struct PortTable: View {
                                     .help("关键系统进程")
                             }
                         }
-                        if let groupText = item.containsTechnicalRecordText {
-                            Text(groupText)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                        ActivitySummaryBadges(
+                            item: item,
+                            listenerProcessCount: listenerProcessCount(for: item)
+                        )
+                        if expandedProcessGroups.contains(item.id) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                ForEach(item.processSummaries) { process in
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "person.crop.circle")
+                                        Text(process.processName + " · PID " + String(process.pid))
+                                            .lineLimit(1)
+                                        if process.recordCount > 1 {
+                                            Text("\(process.recordCount) 条")
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                    }
+                                }
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 3)
+                            .transition(.opacity)
                         }
                     }
                 }
             }
             .width(min: 180, ideal: 230)
 
-            TableColumn("端口", sortUsing: ReadablePortSortComparator(field: .localPort)) { item in
-                Text(item.localPortText)
-                    .font(.system(.body, design: .monospaced, weight: .medium))
+            TableColumn("本机端口", sortUsing: ReadablePortSortComparator(field: .localPort)) { item in
+                CompactPortClusterView(item: item)
+                .help(localPortHelp(for: item))
+                .accessibilityLabel(localPortHelp(for: item))
             }
-            .width(min: 70, ideal: 90, max: 110)
+            .width(min: 105, ideal: 135, max: 165)
 
             TableColumn("正在做什么", sortUsing: ReadablePortSortComparator(field: .status)) { item in
                 PortStatusCell(item: item, portViewModel: portViewModel)
@@ -464,12 +502,43 @@ private struct PortTable: View {
             .width(min: 155, ideal: 205)
 
             TableColumn("访问范围/连接到", sortUsing: ReadablePortSortComparator(field: .connection)) { item in
-                ConnectionDisplayLabel(item: item)
+                CompactTopologyView(
+                    item: item,
+                    listenerProcessCount: listenerProcessCount(for: item)
+                )
             }
-            .width(min: 210, ideal: 280)
+            .width(min: 230, ideal: 300)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
-        .accessibilityLabel("应用、端口和网络活动列表")
+        .accessibilityLabel("应用、本机端口和网络活动列表")
+    }
+
+    private func listenerProcessCount(for item: ReadablePortItem) -> Int {
+        guard item.representative.isListening else { return 0 }
+        let itemPorts = Set(item.localPorts)
+        return Set(allItems.filter { candidate in
+            candidate.representative.isListening
+                && candidate.transport == item.transport
+                && !Set(candidate.localPorts).isDisjoint(with: itemPorts)
+        }.flatMap(\.rawRecords).map(\.pid)).count
+    }
+
+    private func localPortHelp(for item: ReadablePortItem) -> String {
+        if item.representative.isListening {
+            if item.localPorts.count > 1 {
+                let ports = item.localPorts.map(String.init).joined(separator: "、")
+                return "应用正在通过 \(item.localPorts.count) 个服务端口等待连接：\(ports)。同一应用可以为不同功能使用多个服务端口。"
+            }
+            return "服务端口 \(item.localPortText)：应用在这里等待其他程序连接。"
+        }
+        if item.isConnectionSummary {
+            let ports = item.localPorts.map(String.init).joined(separator: "、")
+            if item.localPorts.count > 1 {
+                return "应用通过 \(item.localPorts.count) 个本机连接端口建立网络连接：\(ports)。这些端口不表示对外开放的服务。"
+            }
+            return "本机连接端口 \(item.localPortText)：它用于区分这组连接，不表示应用正在对外提供服务。"
+        }
+        return "\(item.localPortRoleText) \(item.localPortText)。"
     }
 }
 
@@ -586,38 +655,251 @@ private struct PortStatusCell: View {
     }
 }
 
-private struct ConnectionDisplayLabel: View {
+private struct ActivitySummaryBadges: View {
     let item: ReadablePortItem
+    let listenerProcessCount: Int
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: symbol)
-                .foregroundStyle(color)
-            Text(item.connectionDisplay)
-                .lineLimit(1)
-                .truncationMode(.middle)
+        HStack(spacing: 4) {
+            if item.representative.isListening, item.localPorts.count > 1 {
+                ActivityMetricBadge(
+                    value: item.localPorts.count,
+                    symbol: "rectangle.stack.fill",
+                    color: .green,
+                    accessibilityText: "\(item.localPorts.count) 个服务端口"
+                )
+            } else if item.isConnectionSummary, item.connectionCount > 1 {
+                ActivityMetricBadge(
+                    value: item.connectionCount,
+                    symbol: "link",
+                    color: .blue,
+                    accessibilityText: "\(item.connectionCount) 条连接"
+                )
+                ActivityMetricBadge(
+                    value: item.remoteTargetCount,
+                    symbol: "network",
+                    color: .blue,
+                    accessibilityText: "\(item.remoteTargetCount) 个连接目标"
+                )
+            } else if item.rawRecords.count > 1, item.processCount == 1 {
+                ActivityMetricBadge(
+                    value: item.rawRecords.count,
+                    symbol: "doc.on.doc",
+                    color: .secondary,
+                    accessibilityText: "\(item.rawRecords.count) 条技术记录"
+                )
+            }
+
+            if listenerProcessCount > 1 {
+                ActivityMetricBadge(
+                    value: listenerProcessCount,
+                    symbol: "person.2.fill",
+                    color: .secondary,
+                    accessibilityText: "共 \(listenerProcessCount) 个进程使用其中端口"
+                )
+            }
         }
-        .help(helpText)
-        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct ActivityMetricBadge: View {
+    let value: Int
+    let symbol: String
+    let color: Color
+    let accessibilityText: String
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.system(size: 8, weight: .semibold))
+            Text(String(value))
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(color.opacity(0.1), in: Capsule())
+        .overlay { Capsule().stroke(color.opacity(0.22), lineWidth: 0.7) }
+        .help(accessibilityText)
+        .accessibilityLabel(accessibilityText)
+    }
+}
+
+private struct CompactPortClusterView: View {
+    let item: ReadablePortItem
+
+    private var color: Color {
+        if item.representative.isListening { return .green }
+        if item.isConnectionSummary { return .blue }
+        return .secondary
     }
 
     private var symbol: String {
-        if item.representative.isListening {
-            switch item.accessScope {
-            case .localOnly: return "laptopcomputer"
-            case .networkPossible: return "network"
-            case .unknown: return "questionmark.circle"
+        item.representative.isListening ? "rectangle.inset.filled.and.person.filled" : "point.3.connected.trianglepath.dotted"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 3) {
+                ForEach(Array(item.localPorts.prefix(2)), id: \.self) { port in
+                    Text(":" + String(port))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .lineLimit(1)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 3)
+                        .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(color.opacity(0.28), lineWidth: 0.8)
+                        }
+                }
+                if item.localPorts.count > 2 {
+                    Text("+\(item.localPorts.count - 2)")
+                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .foregroundStyle(color)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 3)
+                        .background(color.opacity(0.12), in: Capsule())
+                }
+                if item.localPorts.isEmpty {
+                    Text("*")
+                        .font(.system(.caption, design: .monospaced))
+                }
+            }
+            Label(item.localPortRoleText, systemImage: symbol)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+    }
+}
+
+private struct CompactTopologyView: View {
+    let item: ReadablePortItem
+    let listenerProcessCount: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if item.representative.isListening {
+                CompactTopologyNode(
+                    symbol: sourceSymbol,
+                    count: item.accessScope == .networkPossible ? 2 : 1,
+                    label: sourceLabel,
+                    color: sourceColor
+                )
+                CompactTopologyArrow(symbol: "arrow.right", color: sourceColor)
+                CompactTopologyNode(
+                    symbol: "rectangle.stack.fill",
+                    count: item.localPorts.count,
+                    label: item.localPorts.count > 1 ? "服务端口" : item.localPortText,
+                    color: .green
+                )
+                if listenerProcessCount > 1 {
+                    CompactTopologyArrow(symbol: "arrow.right", color: .secondary)
+                    CompactTopologyNode(
+                        symbol: "person.2.fill",
+                        count: listenerProcessCount,
+                        label: "进程共享",
+                        color: .secondary
+                    )
+                }
+            } else {
+                CompactTopologyNode(
+                    symbol: "rectangle.connected.to.line.below",
+                    count: max(item.localPorts.count, 1),
+                    label: item.localPorts.count > 1 ? "本机端口" : item.localPortText,
+                    color: item.isConnectionSummary ? .blue : .secondary
+                )
+                CompactTopologyArrow(
+                    symbol: item.transport == .udp ? "arrow.left.and.right" : "arrow.left.arrow.right",
+                    color: item.isConnectionSummary ? .blue : .secondary
+                )
+                CompactTopologyNode(
+                    symbol: item.remoteTargetCount > 0 ? "network" : "questionmark",
+                    count: max(item.remoteTargetCount, 1),
+                    label: targetLabel,
+                    color: item.isConnectionSummary ? .blue : .secondary
+                )
             }
         }
-        return item.representative.remoteAddress == nil ? "questionmark.circle" : "arrow.up.right"
+        .help(item.representative.isListening ? item.accessScope.explanation : item.textualRelationshipDescription)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.textualRelationshipDescription)
     }
 
-    private var color: Color {
-        item.representative.isListening && item.accessScope == .networkPossible ? .orange : .secondary
+    private var sourceSymbol: String {
+        switch item.accessScope {
+        case .localOnly: return "laptopcomputer"
+        case .networkPossible: return "network"
+        case .unknown: return "questionmark"
+        }
     }
 
-    private var helpText: String {
-        item.representative.isListening ? item.accessScope.explanation : item.textualRelationshipDescription
+    private var sourceLabel: String {
+        switch item.accessScope {
+        case .localOnly: return "仅本机"
+        case .networkPossible: return "本机/网络"
+        case .unknown: return "来源未知"
+        }
+    }
+
+    private var sourceColor: Color { item.accessScope == .networkPossible ? .orange : .secondary }
+
+    private var targetLabel: String {
+        if item.remoteTargetCount > 1 { return "\(item.remoteTargetCount) 个目标" }
+        if let endpoint = item.remoteEndpoints.first { return endpoint }
+        return "对象不固定"
+    }
+}
+
+private struct CompactTopologyNode: View {
+    let symbol: String
+    let count: Int
+    let label: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ZStack(alignment: .topTrailing) {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(color.opacity(0.1))
+                    .frame(width: 28, height: 26)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(color.opacity(0.25), lineWidth: 0.8)
+                    }
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(color)
+                    .frame(width: 28, height: 26)
+                if count > 1 {
+                    Text(String(count))
+                        .font(.system(size: 7, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 12, minHeight: 12)
+                        .background(color, in: Circle())
+                        .offset(x: 5, y: -5)
+                }
+            }
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .frame(minWidth: 48, maxWidth: 100, alignment: .leading)
+    }
+}
+
+private struct CompactTopologyArrow: View {
+    let symbol: String
+    let color: Color
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(color.opacity(0.75))
+            .accessibilityHidden(true)
     }
 }
 
@@ -643,12 +925,19 @@ private struct RecordDetailView: View {
                             endedBanner(for: item)
                         }
 
-                        Text(item.conclusion)
-                            .font(.title3.weight(.semibold))
-                            .fixedSize(horizontal: false, vertical: true)
+                        Label("活动关系", systemImage: "point.3.connected.trianglepath.dotted")
+                            .font(.headline)
                             .accessibilityAddTraits(.isHeader)
 
-                        ConnectionDiagramView(item: item)
+                        ConnectionDiagramView(
+                            item: item,
+                            relatedListenerItems: relatedListenerItems(for: item)
+                        )
+
+                        Text(item.conclusion)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         if let activitySummary = portViewModel.listenerActivitySummary(for: item) {
                             ListenerPortActivityView(summary: activitySummary)
@@ -731,28 +1020,66 @@ private struct RecordDetailView: View {
         return Array(values.prefix(3))
     }
 
+    private func relatedListenerItems(for item: ReadablePortItem) -> [ReadablePortItem] {
+        guard item.representative.isListening else { return [] }
+        let ports = Set(item.localPorts)
+        return allItems.filter { candidate in
+            candidate.representative.isListening
+                && candidate.transport == item.transport
+                && !Set(candidate.localPorts).isDisjoint(with: ports)
+        }.sorted { left, right in
+            if left.id == right.id { return false }
+            if left.id == item.id { return true }
+            if right.id == item.id { return false }
+            if left.processName != right.processName {
+                return left.processName.localizedStandardCompare(right.processName) == .orderedAscending
+            }
+            return left.pid < right.pid
+        }
+    }
+
     private func actionSection(for item: ReadablePortItem) -> some View {
         let record = item.representative
         let otherCount = allRecords.filter { $0.pid == record.pid && !item.rawRecords.contains($0) }.count
-        let isAllowed = record.belongsToCurrentUser && !hasEnded
+        let processRecords = item.processSummaries.compactMap { process in
+            item.rawRecords.first { $0.pid == process.pid }
+        }
+        let isAllowed = processRecords.allSatisfy(\.belongsToCurrentUser) && !hasEnded
 
         return HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("操作影响")
                     .font(.callout.weight(.medium))
-                Text(otherCount > 0
-                     ? "结束后，这个应用使用的其他 \(otherCount) 个端口或连接也会关闭。"
-                     : "结束的是整个进程；操作前会再次确认它仍在使用这个端口。")
+                Text(item.processCount > 1
+                     ? "此服务由 \(item.processCount) 个进程共同提供；结束前需要选择具体进程，其他进程不会同时结束。"
+                     : otherCount > 0
+                        ? "结束后，这个应用使用的其他 \(otherCount) 个端口或连接也会关闭。"
+                        : "结束的是整个进程；操作前会再次确认它仍在使用这个端口。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("结束进程…", role: .destructive) {
-                portViewModel.prepareToTerminate(record)
+            if item.processCount > 1 {
+                Menu("选择进程结束…") {
+                    ForEach(processRecords) { processRecord in
+                        Button(role: .destructive) {
+                            portViewModel.prepareToTerminate(processRecord)
+                        } label: {
+                            Text(processRecord.processName + " · PID " + String(processRecord.pid))
+                        }
+                    }
+                }
+                .disabled(portViewModel.isRefreshing || !isAllowed)
+                .help("选择要结束的具体进程；操作前仍会重新校验")
+                .accessibilityHint("展开组成此服务的进程列表")
+            } else {
+                Button("结束进程…", role: .destructive) {
+                    portViewModel.prepareToTerminate(record)
+                }
+                .disabled(portViewModel.isRefreshing || !isAllowed)
+                .help(terminationHelp(for: record))
+                .accessibilityHint(terminationHelp(for: record))
             }
-            .disabled(portViewModel.isRefreshing || !isAllowed)
-            .help(terminationHelp(for: record))
-            .accessibilityHint(terminationHelp(for: record))
         }
         .padding(.top, 2)
     }
@@ -784,37 +1111,73 @@ private struct MeaningExplanation: Hashable {
 
 private struct ConnectionDiagramView: View {
     let item: ReadablePortItem
+    let relatedListenerItems: [ReadablePortItem]
     @State private var selectedNodeID: String?
+
+    private var relatedListenerProcessCount: Int {
+        Set(relatedListenerItems.flatMap(\.rawRecords).map(\.pid)).count
+    }
 
     private var nodes: [RelationshipNode] {
         let record = item.representative
         if record.isListening {
-            let sourceTitle: String
             let sourceSubtitle: String
+            let sourceItems: [String]
             switch item.accessScope {
             case .localOnly:
-                sourceTitle = "这台 Mac"
-                sourceSubtitle = "本机应用"
+                sourceSubtitle = "仅本机应用"
+                sourceItems = ["这台 Mac"]
             case .networkPossible:
-                sourceTitle = "这台 Mac / 同一网络"
                 sourceSubtitle = "其他设备可能可访问"
+                sourceItems = ["这台 Mac", "同一网络设备"]
             case .unknown:
-                sourceTitle = "访问来源"
                 sourceSubtitle = "暂不确定"
+                sourceItems = ["来源暂不确定"]
             }
+            let relatedProcesses = Dictionary(
+                grouping: relatedListenerItems.flatMap(\.rawRecords),
+                by: \.pid
+            ).map { pid, records in
+                (pid: pid, name: records[0].processName)
+            }.sorted { $0.pid < $1.pid }
+            let processItems = relatedProcesses.map { process in
+                "\(process.name) · PID \(process.pid)"
+            }
+            let processTitle = processItems.count > 1 ? "\(processItems.count) 个进程" : item.processName
+            let processSubtitle = processItems.count > 1 ? "共同使用其中端口" : "应用/服务"
             return [
-                .init(id: "source", title: sourceTitle, subtitle: sourceSubtitle, symbol: "laptopcomputer.and.arrow.down", explanation: item.accessScope.explanation),
-                .init(id: "port", title: "这台 Mac", subtitle: "端口 \(item.localPortText)", symbol: "rectangle.connected.to.line.below", explanation: "这是该应用在本机使用的编号入口。"),
-                .init(id: "app", title: item.processName, subtitle: "应用/服务", symbol: "app.dashed", explanation: "这个应用或后台服务正在使用该端口。")
+                .init(id: "source", title: "访问来源", subtitle: sourceSubtitle, symbol: "laptopcomputer.and.arrow.down", explanation: item.accessScope.explanation, items: sourceItems),
+                .init(id: "port", title: item.localPorts.count > 1 ? "\(item.localPorts.count) 个服务端口" : "服务端口", subtitle: "等待连接", symbol: "rectangle.stack.fill", explanation: item.localPorts.count > 1 ? "这个应用正在通过多个服务端口等待连接；每个端口可以服务不同功能。" : "这是该应用在本机等待连接的服务端口。", items: item.localPorts.map { ":\($0)" }),
+                .init(id: "app", title: processTitle, subtitle: processSubtitle, symbol: processItems.count > 1 ? "person.2.fill" : "app.dashed", explanation: processItems.count > 1 ? "这些进程使用了相同的服务端口；这可能来自共享监听、继承的 socket 或不同监听地址。" : "这个应用或后台服务正在使用该端口。", items: processItems.count > 1 ? processItems : [])
             ]
         }
 
-        let target = record.remoteAddress == nil ? "可能的通信对象" : record.remoteAddress ?? "连接对象未知"
-        let targetPort = record.remotePort.map { "端口 \($0)" } ?? (record.remoteAddress == nil ? "无固定对象" : "端口未知")
+        let target: String
+        let targetSubtitle: String
+        let targetExplanation: String
+        if item.isConnectionSummary, item.remoteTargetCount > 1 {
+            target = "\(item.remoteTargetCount) 个连接目标"
+            targetSubtitle = "共 \(item.connectionCount) 条连接"
+            targetExplanation = "这些连接的对方地址或端口不同。展开技术详情可以查看每一个连接对象。"
+        } else {
+            target = record.remoteAddress == nil ? "可能的通信对象" : record.remoteAddress ?? "连接对象未知"
+            targetSubtitle = record.remotePort.map { "端口 \($0)" } ?? (record.remoteAddress == nil ? "无固定对象" : "端口未知")
+            targetExplanation = record.remoteAddress == nil
+                ? "系统没有提供固定的连接对象。"
+                : "这是系统返回的另一端地址；不会据此推断网站、位置或安全性。"
+        }
+        let localPortExplanation: String
+        if item.isConnectionSummary, item.connectionCount > 1 {
+            localPortExplanation = item.localPorts.count == 1
+                ? "多条连接可以共同使用这个本机端口，因为它们的连接对象不同。"
+                : "应用通过这些本机连接端口区分多条连接；它们不表示对外开放的服务。"
+        } else {
+            localPortExplanation = "这是该应用当前在本机使用的端口。"
+        }
         return [
             .init(id: "app", title: item.processName, subtitle: "应用/服务", symbol: "app.dashed", explanation: "这个应用或后台服务正在进行网络活动。"),
-            .init(id: "port", title: "这台 Mac", subtitle: "\(record.transport.rawValue) 端口 \(item.localPortText)", symbol: "rectangle.connected.to.line.below", explanation: "这是该应用当前在本机使用的端口。"),
-            .init(id: "target", title: target, subtitle: targetPort, symbol: "network", explanation: record.remoteAddress == nil ? "系统没有提供固定的连接对象。" : "这是系统返回的另一端地址；不会据此推断网站、位置或安全性。")
+            .init(id: "port", title: item.isConnectionSummary ? "本机连接端口" : "这台 Mac 的端口", subtitle: item.localPorts.count > 1 ? "\(item.localPorts.count) 个" : item.localPortRelationshipText, symbol: "rectangle.connected.to.line.below", explanation: localPortExplanation, items: item.localPorts.map { ":\($0)" }),
+            .init(id: "target", title: item.isConnectionSummary ? "连接目标" : target, subtitle: item.isConnectionSummary ? "\(item.remoteTargetCount) 个 · \(item.connectionCount) 条连接" : targetSubtitle, symbol: "network", explanation: targetExplanation, items: item.isConnectionSummary ? item.remoteEndpoints : [])
         ]
     }
 
@@ -823,7 +1186,7 @@ private struct ConnectionDiagramView: View {
         if record.isListening {
             return [
                 .init(label: item.accessScope == .networkPossible ? "可能可访问" : "可以尝试连接", bidirectional: false, dashed: item.accessScope != .localOnly),
-                .init(label: "等待连接", bidirectional: false, dashed: false)
+                .init(label: relatedListenerProcessCount > 1 ? "\(relatedListenerProcessCount) 个进程使用" : "等待连接", bidirectional: false, dashed: false)
             ]
         }
         if record.transport == .udp {
@@ -833,7 +1196,7 @@ private struct ConnectionDiagramView: View {
             ]
         }
         return [
-            .init(label: "存在连接", bidirectional: true, dashed: false),
+            .init(label: item.connectionCount > 1 ? "\(item.connectionCount) 条连接" : "存在连接", bidirectional: true, dashed: false),
             .init(label: item.friendlyStatusTitle, bidirectional: true, dashed: false)
         ]
     }
@@ -962,6 +1325,23 @@ private struct RelationshipNode {
     let subtitle: String
     let symbol: String
     let explanation: String
+    let items: [String]
+
+    init(
+        id: String,
+        title: String,
+        subtitle: String,
+        symbol: String,
+        explanation: String,
+        items: [String] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.symbol = symbol
+        self.explanation = explanation
+        self.items = items
+    }
 }
 
 private struct RelationshipConnector {
@@ -978,23 +1358,40 @@ private struct RelationshipNodeView: View {
         Button {
             selectedNodeID = node.id
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: node.symbol)
-                    .font(.title3)
-                    .foregroundStyle(.tint)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(node.title)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(node.subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Image(systemName: node.symbol)
+                        .font(.title3)
+                        .foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(node.title)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(node.subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                if !node.items.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(node.items.prefix(3)), id: \.self) { item in
+                            BranchItemRow(text: item)
+                        }
+                        if node.items.count > 3 {
+                            Text("另有 \(node.items.count - 3) 项")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.tint)
+                                .padding(.leading, 17)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 11)
-            .frame(width: 170, alignment: .leading)
+            .padding(.vertical, 9)
+            .frame(width: 190, alignment: .leading)
             .frame(minHeight: 58, alignment: .leading)
             .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
             .overlay {
@@ -1004,8 +1401,35 @@ private struct RelationshipNodeView: View {
         }
         .buttonStyle(.plain)
         .help(node.explanation)
-        .accessibilityLabel("\(node.title)，\(node.subtitle)。\(node.explanation)")
+        .accessibilityLabel(accessibilityText)
         .accessibilityHint("显示这个节点的解释")
+    }
+
+    private var accessibilityText: String {
+        let itemText = node.items.isEmpty ? "" : "包含：\(node.items.joined(separator: "、"))。"
+        return "\(node.title)，\(node.subtitle)。\(itemText)\(node.explanation)"
+    }
+}
+
+private struct BranchItemRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Circle()
+                .fill(Color.accentColor)
+                .frame(width: 5, height: 5)
+            Rectangle()
+                .fill(Color.accentColor.opacity(0.45))
+                .frame(width: 9, height: 1)
+            Text(text)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+        }
     }
 }
 
@@ -1097,22 +1521,45 @@ private struct TechnicalDetailsView: View {
     }
 
     private var processFields: [TechnicalField] {
-        [
+        var fields: [TechnicalField] = [
             .init(title: "应用/服务", value: record.processName, explanation: "正在使用网络的应用、后台服务或系统进程", monospaced: false),
-            .init(title: "进程编号", value: String(record.pid), explanation: "系统分配的临时编号，主要用于精确识别和排障"),
+            .init(title: "进程编号", value: item.processSummaries.map { String($0.pid) }.joined(separator: "、"), explanation: "系统分配的临时编号；多个编号表示这项服务由多个进程共同提供"),
             .init(title: "归属用户", value: record.user, explanation: "启动该进程的 macOS 用户", monospaced: false),
             .init(title: "启动来源", value: parentProcessDescription, explanation: "启动当前进程的上一级进程", monospaced: false),
             .init(title: "程序位置", value: record.executablePath ?? "无法获取", explanation: "当前进程对应程序文件在磁盘上的位置", monospaced: false)
         ]
+        if item.processCount > 1 {
+            fields.insert(
+                .init(title: "组成进程", value: "\(item.processCount) 个", explanation: "这些进程使用了同一组服务端口", monospaced: false),
+                at: 1
+            )
+        }
+        return fields
     }
 
     private var connectionFields: [TechnicalField] {
         [
             .init(title: "传输与地址格式", value: record.protocolDisplay, explanation: "TCP/UDP 是传输方式，IPv4/IPv6 是地址格式", monospaced: false),
-            .init(title: "这台 Mac 的地址和端口", value: record.localEndpoint, explanation: "当前进程在本机使用的原始网络地址与端口"),
-            .init(title: "连接对象", value: record.remoteEndpoint, explanation: "另一端的原始地址与端口；不能据此判断此刻是否有数据传输"),
-            .init(title: "原始 TCP 状态", value: record.normalizedState ?? "无（UDP 或系统未提供）", explanation: record.friendlyStatusExplanation)
+            .init(title: "这台 Mac 的地址和端口", value: endpointSummary(local: true), explanation: "当前进程在本机使用的原始网络地址与端口；完整列表见下方技术记录"),
+            .init(title: "连接对象", value: endpointSummary(local: false), explanation: "另一端的原始地址与端口；不能据此判断此刻是否有数据传输"),
+            .init(title: "原始 TCP 状态", value: stateSummary, explanation: record.friendlyStatusExplanation)
         ]
+    }
+
+    private func endpointSummary(local: Bool) -> String {
+        let endpoints = Array(Set(item.rawRecords.compactMap { raw -> String? in
+            if local { return raw.localEndpoint }
+            return raw.remoteAddress == nil ? nil : raw.remoteEndpoint
+        })).sorted()
+        guard !endpoints.isEmpty else { return "—" }
+        guard endpoints.count > 3 else { return endpoints.joined(separator: "、") }
+        return "\(endpoints.count) 个端点：\(endpoints.prefix(3).joined(separator: "、"))…"
+    }
+
+    private var stateSummary: String {
+        let states = Array(Set(item.rawRecords.compactMap(\.normalizedState))).sorted()
+        if states.isEmpty { return "无（UDP 或系统未提供）" }
+        return states.joined(separator: "、")
     }
 
     private var systemFields: [TechnicalField] {
@@ -1165,11 +1612,15 @@ private struct TechnicalDetailsView: View {
 
     private var rawRecordsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("合并的技术记录")
+            Text("组成此活动的技术记录")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
             ForEach(item.rawRecords) { raw in
-                Text("\(raw.ipVersion.rawValue) · \(raw.transport.rawValue) · \(raw.localEndpoint) · \(raw.remoteEndpoint) · \(raw.normalizedState ?? "无状态") · FD \(raw.fileDescriptor)")
+                Text([
+                    "PID " + String(raw.pid), raw.ipVersion.rawValue, raw.transport.rawValue,
+                    raw.localEndpoint, raw.remoteEndpoint, raw.normalizedState ?? "无状态",
+                    "FD " + raw.fileDescriptor
+                ].joined(separator: " · "))
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1187,7 +1638,7 @@ private struct TechnicalDetailsView: View {
                     onSelectItem(other)
                 } label: {
                     HStack {
-                        Text("\(other.transport.rawValue) 端口 \(other.localPortText)")
+                        Text("\(other.transport.rawValue) · \(other.localPortRelationshipText)")
                             .font(.system(.callout, design: .monospaced))
                         Text(other.friendlyStatusTitle)
                             .foregroundStyle(.secondary)
@@ -1232,7 +1683,7 @@ private struct TeachingEmptyDetail: View {
             .popover(isPresented: $showsPortHelp) {
                 HelpPopover(
                     title: "什么是端口？",
-                    text: "端口是应用在这台 Mac 上接收或发送网络数据时使用的编号入口。选择列表中的一项后，Port Viewer 会说明哪个应用正在使用它，以及谁可能访问。"
+                    text: "本机端口是应用在这台 Mac 上收发网络数据时使用的编号。服务端口用于等待连接；连接其他服务时，macOS 通常还会分配本机连接端口。相同端口不一定是同一连接，多个连接端口也不代表应用对外开放了多个服务。"
                 )
             }
         }

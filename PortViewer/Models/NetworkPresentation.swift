@@ -9,6 +9,22 @@ enum NetworkActivityKind: String, CaseIterable, Identifiable, Sendable {
     var id: Self { self }
 }
 
+enum ActivityTopologyKind: String, Sendable {
+    case single
+    case multipleServicePorts
+    case multiplePortsToOneTarget
+    case onePortToMultipleTargets
+    case multiplePortsToMultipleTargets
+}
+
+struct ProcessUsageSummary: Identifiable, Hashable, Sendable {
+    let pid: Int32
+    let processName: String
+    let recordCount: Int
+
+    var id: Int32 { pid }
+}
+
 enum NetworkAccessScope: String, CaseIterable, Identifiable, Sendable {
     case localOnly = "仅这台 Mac"
     case networkPossible = "可能被其他设备访问"
@@ -165,11 +181,46 @@ struct ListenerActivitySummary: Equatable, Sendable {
         snapshot: PortActivitySnapshot,
         recentChanges: [ListenerActivityKey: RecentPortActivityChange]
     ) -> ListenerActivitySummary? {
-        guard let key = ListenerActivityKey(listener: item.representative) else { return nil }
+        let keys = Set(item.rawRecords.compactMap(ListenerActivityKey.init(listener:)))
+        guard !keys.isEmpty else { return nil }
+        let connectionIDs = keys.reduce(into: Set<String>()) { result, key in
+            result.formUnion(snapshot.connectionIDsByListener[key] ?? [])
+        }
+        let remoteEndpoints = keys.reduce(into: Set<String>()) { result, key in
+            result.formUnion(snapshot.remoteEndpointsByListener[key] ?? [])
+        }
+        let changes = keys.compactMap { recentChanges[$0] }
         return ListenerActivitySummary(
-            connectionCount: snapshot.connectionIDsByListener[key]?.count ?? 0,
-            remoteEndpoints: snapshot.remoteEndpointsByListener[key] ?? [],
-            recentChange: recentChanges[key]
+            connectionCount: connectionIDs.count,
+            remoteEndpoints: remoteEndpoints.sorted(),
+            recentChange: aggregateRecentChanges(changes)
+        )
+    }
+
+    private static func aggregateRecentChanges(
+        _ changes: [RecentPortActivityChange]
+    ) -> RecentPortActivityChange? {
+        guard !changes.isEmpty else { return nil }
+        var appeared = 0
+        var ended = 0
+        for change in changes {
+            switch change.kind {
+            case .appeared(let count): appeared += count
+            case .ended(let count): ended += count
+            case .changed(let appearedCount, let endedCount):
+                appeared += appearedCount
+                ended += endedCount
+            }
+        }
+        let kind: PortActivityChangeKind
+        switch (appeared, ended) {
+        case (_, 0): kind = .appeared(appeared)
+        case (0, _): kind = .ended(ended)
+        default: kind = .changed(appeared: appeared, ended: ended)
+        }
+        return RecentPortActivityChange(
+            kind: kind,
+            observedAt: changes.map(\.observedAt).max() ?? Date()
         )
     }
 }
@@ -266,14 +317,83 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     var pid: Int32 { representative.pid }
     var transport: TransportProtocol { representative.transport }
     var localPort: Int? { representative.localPort }
-    var localPortText: String { representative.localPortText }
-    var localPortSortValue: Int { representative.localPortSortValue }
+    var localPorts: [Int] { Array(Set(rawRecords.compactMap(\.localPort))).sorted() }
+    var remoteEndpoints: [String] {
+        Array(Set(rawRecords.compactMap { record in
+            record.remoteAddress == nil ? nil : record.remoteEndpoint
+        })).sorted()
+    }
+    var connectionCount: Int { rawRecords.filter(\.isActiveConnection).count }
+    var remoteTargetCount: Int { remoteEndpoints.count }
+    var processSummaries: [ProcessUsageSummary] {
+        Dictionary(grouping: rawRecords, by: \.pid).map { pid, records in
+            ProcessUsageSummary(
+                pid: pid,
+                processName: records[0].processName,
+                recordCount: records.count
+            )
+        }.sorted { $0.pid < $1.pid }
+    }
+    var processCount: Int { processSummaries.count }
+    var localPortText: String {
+        switch localPorts.count {
+        case 0: return "*"
+        case 1: return String(localPorts[0])
+        default: return "\(localPorts.count) 个"
+        }
+    }
+    var localPortSortValue: Int { localPorts.first ?? Int.max }
     var activityKind: NetworkActivityKind { representative.activityKind }
     var accessScope: NetworkAccessScope { representative.accessScope }
     var friendlyStatusTitle: String { representative.friendlyStatusTitle }
     var processSortValue: String { processName.localizedLowercase }
     var statusSortValue: String { friendlyStatusTitle }
     var connectionSortValue: String { connectionDisplay }
+    var isConnectionSummary: Bool {
+        transport == .tcp && !representative.isListening && rawRecords.contains { $0.remoteAddress != nil }
+    }
+    var topologyKind: ActivityTopologyKind {
+        if representative.isListening {
+            return localPorts.count > 1 ? .multipleServicePorts : .single
+        }
+        guard isConnectionSummary else { return .single }
+        switch (localPorts.count > 1, remoteTargetCount > 1) {
+        case (true, false): return .multiplePortsToOneTarget
+        case (false, true): return .onePortToMultipleTargets
+        case (true, true): return .multiplePortsToMultipleTargets
+        case (false, false): return .single
+        }
+    }
+
+    var localPortRoleText: String {
+        if representative.isListening { return "服务端口" }
+        if isConnectionSummary { return "连接端口" }
+        if transport == .udp { return "UDP 端口" }
+        return "本机端口"
+    }
+
+    var localPortRelationshipText: String {
+        let port = localPorts.first.map(String.init) ?? "未知"
+        if representative.isListening {
+            return localPorts.count > 1 ? "\(localPorts.count) 个服务端口" : "服务端口 \(port)"
+        }
+        if isConnectionSummary {
+            return localPorts.count > 1 ? "\(localPorts.count) 个本机连接端口" : "本机连接端口 \(port)"
+        }
+        if transport == .udp { return "UDP 端口 \(port)" }
+        return "本机端口 \(port)"
+    }
+
+    var activitySummaryText: String? {
+        if representative.isListening, localPorts.count > 1 {
+            return "\(localPorts.count) 个服务端口"
+        }
+        if isConnectionSummary, connectionCount > 1 {
+            let targetText = remoteTargetCount == 1 ? "1 个目标" : "\(remoteTargetCount) 个目标"
+            return "\(connectionCount) 条连接 · \(targetText)"
+        }
+        return containsTechnicalRecordText
+    }
 
     var containsTechnicalRecordText: String? {
         rawRecords.count > 1 ? "包含 \(rawRecords.count) 条技术记录" : nil
@@ -283,8 +403,14 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
         if representative.isListening {
             return accessScope.rawValue
         }
-        if representative.remoteAddress != nil {
-            return "连接到 \(representative.remoteEndpoint)"
+        if isConnectionSummary {
+            if remoteTargetCount == 1, let endpoint = remoteEndpoints.first {
+                let countSuffix = connectionCount > 1 ? " · \(connectionCount) 条" : ""
+                return "连接到 \(endpoint)\(countSuffix)"
+            }
+            if remoteTargetCount > 1 {
+                return "连接到 \(remoteTargetCount) 个目标 · \(connectionCount) 条"
+            }
         }
         if representative.transport == .udp {
             return "通信对象不固定"
@@ -297,6 +423,16 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
         let port = record.localPort.map(String.init) ?? "未知端口"
 
         if record.isListening {
+            if localPorts.count > 1 {
+                switch accessScope {
+                case .localOnly:
+                    return "\(processName) 正在通过 \(localPorts.count) 个服务端口等待这台 Mac 上的应用连接。"
+                case .networkPossible:
+                    return "\(processName) 正在通过 \(localPorts.count) 个服务端口等待连接，同一网络中的其他设备可能也能访问它们。"
+                case .unknown:
+                    return "\(processName) 正在通过 \(localPorts.count) 个服务端口等待连接，但访问范围暂不确定。"
+                }
+            }
             switch accessScope {
             case .localOnly:
                 return "\(processName) 正在通过端口 \(port) 等待这台 Mac 上的应用连接。"
@@ -312,6 +448,29 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
                 return "\(processName) 正在使用 UDP 端口 \(port) 与 \(record.remoteEndpoint) 通信。"
             }
             return "\(processName) 正在使用 UDP 端口 \(port) 发送或接收无固定连接的数据。"
+        }
+
+        if isConnectionSummary, connectionCount > 1 {
+            let targetText: String
+            if remoteTargetCount == 1, let endpoint = remoteEndpoints.first {
+                targetText = endpoint
+            } else {
+                targetText = "\(remoteTargetCount) 个不同目标"
+            }
+            let portText: String
+            if localPorts.count == 1, let sharedPort = localPorts.first {
+                portText = "共同使用本机端口 \(sharedPort)"
+            } else {
+                portText = "使用 \(localPorts.count) 个本机连接端口"
+            }
+            switch activityKind {
+            case .connected:
+                return "\(processName) 与 \(targetText) 之间有 \(connectionCount) 条已建立连接，\(portText)。"
+            case .transitioning:
+                return "\(processName) 与 \(targetText) 之间有 \(connectionCount) 条连接正在建立或关闭，\(portText)。"
+            default:
+                return "\(processName) 正在与 \(targetText) 进行 \(connectionCount) 条网络连接活动，\(portText)。"
+            }
         }
 
         if let remoteAddress = record.remoteAddress {
@@ -334,11 +493,18 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
         let port = record.localPort.map(String.init) ?? "未知"
         if record.isListening {
             let source = accessScope == .localOnly ? "这台 Mac" : accessScope == .networkPossible ? "这台 Mac 或同一网络设备" : "访问来源暂不确定"
-            return "连接关系：\(source) 可以尝试连接这台 Mac 的端口 \(port)，该端口由 \(processName) 使用。"
+            let ownership = localPorts.count > 1 ? "这些端口" : "该端口"
+            return "连接关系：\(source) 可以尝试连接这台 Mac 的\(localPortRelationshipText)，\(ownership)由 \(processName) 使用。"
         }
         if record.transport == .udp {
             let target = record.remoteAddress == nil ? "可能的通信对象" : record.remoteEndpoint
             return "连接关系：\(processName) 通过这台 Mac 的 UDP 端口 \(port) 与 \(target) 发送或接收数据。UDP 没有 TCP 式的连接状态。"
+        }
+        if isConnectionSummary, connectionCount > 1 {
+            let target = remoteTargetCount == 1
+                ? (remoteEndpoints.first ?? "连接对象未知")
+                : "\(remoteTargetCount) 个不同目标"
+            return "连接关系：\(processName) 通过这台 Mac 的\(localPortRelationshipText)，与 \(target) 保持 \(connectionCount) 条独立连接；这些本机端口不表示应用对外开放了同样数量的服务。"
         }
         let target = record.remoteAddress == nil ? "连接对象未知" : record.remoteEndpoint
         return "连接关系：\(processName) 通过这台 Mac 的本机端口 \(port) 与 \(target) 存在连接关系；双向箭头不表示此刻一定正在传输数据。"
@@ -347,45 +513,78 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     var meaningMessages: [String] {
         let record = representative
         if record.isListening {
-            return [accessScope.explanation]
+            var messages = [accessScope.explanation]
+            if localPorts.count > 1 {
+                messages.append("同一应用可以为不同功能使用多个服务端口；端口数量本身不代表异常。")
+            }
+            return messages
         }
         if record.transport == .udp {
             return ["UDP 不保持“已连接/未连接”状态，因此这里没有 TCP 那样的连接状态。"]
         }
+        var messages: [String]
         switch record.normalizedState {
         case "ESTABLISHED":
-            return ["两端已建立连接并具备交换数据的条件，但不代表此刻一定在传输数据。"]
+            messages = ["两端已建立连接并具备交换数据的条件，但不代表此刻一定在传输数据。"]
         case "TIME_WAIT", "CLOSED":
-            return ["连接已经结束，系统可能会短暂保留这条记录。"]
+            messages = ["连接已经结束，系统可能会短暂保留这条记录。"]
         default:
-            return [record.friendlyStatusExplanation]
+            messages = [record.friendlyStatusExplanation]
         }
+
+        guard isConnectionSummary, connectionCount > 1 else { return messages }
+        let repeatedPorts = Dictionary(grouping: rawRecords.compactMap(\.localPort), by: { $0 })
+            .filter { $0.value.count > 1 }
+            .sorted { $0.key < $1.key }
+        if let repeatedPort = repeatedPorts.first {
+            messages.append("本机端口 \(repeatedPort.key) 同时出现在 \(repeatedPort.value.count) 条连接中，因为连接对象不同；相同端口不代表同一连接。")
+        } else {
+            messages.append("同一应用可以同时建立多条独立连接；这些本机连接端口不是对外开放的服务。")
+        }
+        return messages
     }
 
     static func group(_ records: [PortRecord]) -> [ReadablePortItem] {
         struct GroupKey: Hashable {
-            let pid: Int32
+            let pid: Int32?
+            let processIdentity: String
             let transport: TransportProtocol
             let port: Int?
             let activityMeaning: String
             let accessScope: NetworkAccessScope
             let remoteEndpoint: String
+            let presentationKind: String
         }
 
         let grouped = Dictionary(grouping: records) { record in
             let unknownStateSuffix = record.friendlyStatusTitle == "其他状态" ? "|\(record.normalizedState ?? "")" : ""
+            let summarizesConnections = record.isActiveConnection
+            let summarizesListeners = record.isListening
             return GroupKey(
-                pid: record.pid,
+                pid: summarizesListeners ? nil : record.pid,
+                processIdentity: summarizesListeners
+                    ? [record.processName, record.user, record.executablePath ?? ""].joined(separator: "|")
+                    : "",
                 transport: record.transport,
-                port: record.localPort,
+                port: summarizesConnections || summarizesListeners ? nil : record.localPort,
                 activityMeaning: record.friendlyStatusTitle + unknownStateSuffix,
                 accessScope: record.accessScope,
-                remoteEndpoint: record.isListening ? "" : record.remoteEndpoint
+                remoteEndpoint: summarizesConnections || record.isListening ? "" : record.remoteEndpoint,
+                presentationKind: summarizesConnections ? "connection-summary" : summarizesListeners ? "listener-summary" : "port-activity"
             )
         }
 
         return grouped.map { key, values in
             let sortedValues = values.sorted {
+                if $0.localPortSortValue != $1.localPortSortValue {
+                    return $0.localPortSortValue < $1.localPortSortValue
+                }
+                if $0.remoteEndpoint != $1.remoteEndpoint {
+                    return $0.remoteEndpoint.localizedStandardCompare($1.remoteEndpoint) == .orderedAscending
+                }
+                if $0.pid != $1.pid {
+                    return $0.pid < $1.pid
+                }
                 if $0.ipVersion.rawValue != $1.ipVersion.rawValue {
                     return $0.ipVersion.rawValue < $1.ipVersion.rawValue
                 }
@@ -395,8 +594,8 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
                 return $0.fileDescriptor.localizedStandardCompare($1.fileDescriptor) == .orderedAscending
             }
             let stableID = [
-                String(key.pid), key.transport.rawValue, key.port.map(String.init) ?? "*",
-                key.activityMeaning, key.accessScope.rawValue, key.remoteEndpoint
+                key.pid.map(String.init) ?? key.processIdentity, key.transport.rawValue, key.port.map(String.init) ?? "*",
+                key.activityMeaning, key.accessScope.rawValue, key.remoteEndpoint, key.presentationKind
             ].joined(separator: "|")
             return ReadablePortItem(id: stableID, rawRecords: sortedValues)
         }.sorted {

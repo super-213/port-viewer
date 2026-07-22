@@ -36,7 +36,38 @@ final class NetworkPresentationTests: XCTestCase {
         XCTAssertTrue(item.conclusion.contains("等待这台 Mac 上的应用连接"))
     }
 
-    func testGroupingDoesNotMergeDifferentRemoteEndpointsOrAccessScopes() {
+    func testMultipleListenerPortsBecomeOneServiceActivityWithinTheSameScope() throws {
+        let first = makeRecord(address: "127.0.0.1", descriptor: "4", localPort: 3_000)
+        let second = makeRecord(address: "127.0.0.1", descriptor: "5", localPort: 8_080)
+
+        let items = ReadablePortItem.group([first, second])
+        let item = try XCTUnwrap(items.first)
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(item.localPorts, [3_000, 8_080])
+        XCTAssertEqual(item.localPortText, "2 个")
+        XCTAssertEqual(item.localPortRelationshipText, "2 个服务端口")
+        XCTAssertEqual(item.activitySummaryText, "2 个服务端口")
+        XCTAssertEqual(item.topologyKind, .multipleServicePorts)
+        XCTAssertTrue(item.conclusion.contains("通过 2 个服务端口"))
+        XCTAssertTrue(item.meaningMessages.contains { $0.contains("端口数量本身不代表异常") })
+    }
+
+    func testSharedListenerAcrossProcessesBecomesOneExpandableServiceGroup() throws {
+        let workerA = makeRecord(address: "*", descriptor: "4", pid: 843, localPort: 8_080)
+        let workerB = makeRecord(address: "*", descriptor: "5", pid: 939, localPort: 8_080)
+
+        let items = ReadablePortItem.group([workerA, workerB])
+        let item = try XCTUnwrap(items.first)
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(item.localPorts, [8_080])
+        XCTAssertEqual(item.processCount, 2)
+        XCTAssertEqual(item.processSummaries.map(\.pid), [843, 939])
+        XCTAssertEqual(item.processSummaries.map(\.recordCount), [1, 1])
+    }
+
+    func testGroupingKeepsListenerScopesSeparateAndSummarizesConnectionsByProcess() throws {
         let localListener = makeRecord(address: "127.0.0.1", descriptor: "4")
         let networkListener = makeRecord(address: "*", descriptor: "5")
         let firstRemote = makeRecord(
@@ -57,7 +88,45 @@ final class NetworkPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(ReadablePortItem.group([localListener, networkListener]).count, 2)
-        XCTAssertEqual(ReadablePortItem.group([firstRemote, secondRemote]).count, 2)
+        let connectionItem = try XCTUnwrap(ReadablePortItem.group([firstRemote, secondRemote]).first)
+        XCTAssertEqual(ReadablePortItem.group([firstRemote, secondRemote]).count, 1)
+        XCTAssertEqual(connectionItem.connectionCount, 2)
+        XCTAssertEqual(connectionItem.remoteTargetCount, 2)
+        XCTAssertEqual(connectionItem.localPorts, [53_124])
+        XCTAssertEqual(connectionItem.activitySummaryText, "2 条连接 · 2 个目标")
+        XCTAssertEqual(connectionItem.topologyKind, .onePortToMultipleTargets)
+        XCTAssertTrue(connectionItem.conclusion.contains("共同使用本机端口 53124"))
+        XCTAssertTrue(connectionItem.meaningMessages.contains { $0.contains("相同端口不代表同一连接") })
+    }
+
+    func testMultipleLocalPortsToOneTargetBecomeOneReadableActivity() throws {
+        let first = makeRecord(
+            address: "192.168.1.10",
+            descriptor: "6",
+            localPort: 50_490,
+            remoteAddress: "198.18.0.4",
+            remotePort: 443,
+            state: "ESTABLISHED"
+        )
+        let second = makeRecord(
+            address: "192.168.1.10",
+            descriptor: "7",
+            localPort: 50_578,
+            remoteAddress: "198.18.0.4",
+            remotePort: 443,
+            state: "ESTABLISHED"
+        )
+
+        let item = try XCTUnwrap(ReadablePortItem.group([first, second]).first)
+
+        XCTAssertEqual(item.connectionCount, 2)
+        XCTAssertEqual(item.remoteEndpoints, ["198.18.0.4:443"])
+        XCTAssertEqual(item.localPorts, [50_490, 50_578])
+        XCTAssertEqual(item.localPortText, "2 个")
+        XCTAssertEqual(item.connectionDisplay, "连接到 198.18.0.4:443 · 2 条")
+        XCTAssertEqual(item.topologyKind, .multiplePortsToOneTarget)
+        XCTAssertTrue(item.conclusion.contains("使用 2 个本机连接端口"))
+        XCTAssertTrue(item.meaningMessages.contains { $0.contains("不是对外开放的服务") })
     }
 
     func testRawRecordIdentityRemainsStableWhenOnlyTCPStateChanges() {
@@ -143,6 +212,33 @@ final class NetworkPresentationTests: XCTestCase {
         )
     }
 
+    func testListenerActivitySummaryCombinesConnectionsAcrossGroupedServicePorts() throws {
+        let firstListener = makeRecord(address: "127.0.0.1", descriptor: "4", localPort: 3_000)
+        let secondListener = makeRecord(address: "127.0.0.1", descriptor: "5", localPort: 8_080)
+        let firstConnection = makeRecord(
+            address: "127.0.0.1",
+            descriptor: "6",
+            localPort: 3_000,
+            remoteAddress: "127.0.0.1",
+            remotePort: 50_001,
+            state: "ESTABLISHED"
+        )
+        let secondConnection = makeRecord(
+            address: "127.0.0.1",
+            descriptor: "7",
+            localPort: 8_080,
+            remoteAddress: "127.0.0.1",
+            remotePort: 50_002,
+            state: "ESTABLISHED"
+        )
+        let item = try XCTUnwrap(ReadablePortItem.group([firstListener, secondListener]).first)
+        let snapshot = PortActivitySnapshot.capture(from: [firstListener, secondListener, firstConnection, secondConnection])
+        let summary = try XCTUnwrap(ListenerActivitySummary.make(for: item, snapshot: snapshot, recentChanges: [:]))
+
+        XCTAssertEqual(summary.connectionCount, 2)
+        XCTAssertEqual(summary.remoteEndpoints, ["127.0.0.1:50001", "127.0.0.1:50002"])
+    }
+
     func testListenerActivityDoesNotTreatTCPStateChangeAsANewConnection() {
         let listener = makeRecord(address: "127.0.0.1")
         let establishing = makeRecord(
@@ -168,6 +264,7 @@ final class NetworkPresentationTests: XCTestCase {
     private func makeRecord(
         address: String,
         descriptor: String = "4",
+        pid: Int32 = 123,
         ipVersion: IPVersion = .v4,
         localPort: Int = 3000,
         remoteAddress: String? = nil,
@@ -177,7 +274,7 @@ final class NetworkPresentationTests: XCTestCase {
     ) -> PortRecord {
         PortRecord(
             processName: "node",
-            pid: 123,
+            pid: pid,
             user: NSUserName(),
             fileDescriptor: descriptor,
             ipVersion: ipVersion,
