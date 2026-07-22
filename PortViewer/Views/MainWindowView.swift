@@ -429,20 +429,15 @@ private struct PortTable: View {
             TableColumn("应用/服务", sortUsing: ReadablePortSortComparator(field: .process)) { item in
                 HStack(alignment: .top, spacing: 7) {
                     if item.processCount > 1 {
-                        Button {
+                        ProcessGroupDisclosureButton(
+                            isExpanded: expandedProcessGroups.contains(item.id)
+                        ) {
                             if expandedProcessGroups.contains(item.id) {
                                 expandedProcessGroups.remove(item.id)
                             } else {
                                 expandedProcessGroups.insert(item.id)
                             }
-                        } label: {
-                            Image(systemName: expandedProcessGroups.contains(item.id) ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 9, weight: .semibold))
-                                .frame(width: 12, height: 20)
                         }
-                        .buttonStyle(.plain)
-                        .help(expandedProcessGroups.contains(item.id) ? "收起组成此服务的进程" : "展开组成此服务的进程")
-                        .accessibilityLabel(expandedProcessGroups.contains(item.id) ? "收起进程列表" : "展开进程列表")
                     }
                     ProcessIconView(record: item.representative, size: 20)
                     VStack(alignment: .leading, spacing: 1) {
@@ -652,6 +647,34 @@ private struct PortStatusCell: View {
             return .secondary
         }
         return .blue
+    }
+}
+
+private struct ProcessGroupDisclosureButton: View {
+    let isExpanded: Bool
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering ? Color.primary.opacity(0.10) : Color.clear)
+
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .frame(width: 32, height: 32)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .help(isExpanded ? "收起组成此服务的进程" : "展开组成此服务的进程")
+        .accessibilityLabel(isExpanded ? "收起进程列表" : "展开进程列表")
+        .accessibilityValue(isExpanded ? "已展开" : "已折叠")
+        .accessibilityHint("显示或隐藏组成此服务的具体进程")
     }
 }
 
