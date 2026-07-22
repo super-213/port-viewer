@@ -6,7 +6,7 @@
   <p>
     <a href="https://github.com/super-213/port-viewer/actions/workflows/xcode-build-analyze.yml"><img src="https://github.com/super-213/port-viewer/actions/workflows/xcode-build-analyze.yml/badge.svg" alt="Xcode 构建状态"></a>
     <img src="https://img.shields.io/badge/macOS-15.0%2B-black?logo=apple" alt="macOS 15.0 或更高版本">
-    <img src="https://img.shields.io/badge/Swift-5-F05138?logo=swift&amp;logoColor=white" alt="Swift 6">
+    <img src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&amp;logoColor=white" alt="Swift 6">
   </p>
 </div>
 
