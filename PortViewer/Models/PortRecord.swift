@@ -99,6 +99,21 @@ struct PortSnapshot: Sendable {
     let capturedAt: Date
     let duration: TimeInterval
     let isPartial: Bool
+    let activitySnapshot: PortActivitySnapshot
+
+    init(
+        records: [PortRecord],
+        capturedAt: Date,
+        duration: TimeInterval,
+        isPartial: Bool,
+        activitySnapshot: PortActivitySnapshot? = nil
+    ) {
+        self.records = records
+        self.capturedAt = capturedAt
+        self.duration = duration
+        self.isPartial = isPartial
+        self.activitySnapshot = activitySnapshot ?? PortActivitySnapshot.capture(from: records)
+    }
 }
 
 struct PortSearch {

@@ -34,6 +34,18 @@ struct OperationFeedback: Identifiable, Equatable {
     let message: String
 }
 
+struct AdaptiveRefreshPolicy {
+    static func interval(
+        base: TimeInterval,
+        consecutiveUnchangedRefreshes: Int,
+        maximum: TimeInterval
+    ) -> TimeInterval {
+        let stage = min(max(0, consecutiveUnchangedRefreshes) / 3, 3)
+        let multiplier = pow(2, Double(stage))
+        return min(base * multiplier, max(base, maximum))
+    }
+}
+
 struct TerminationPrompt: Identifiable, Equatable {
     enum Stage: Equatable {
         case standard
@@ -107,6 +119,7 @@ final class PortViewModel {
     @ObservationIgnored private var isMainWindowVisible = false
     @ObservationIgnored private var isMenuBarPanelVisible = false
     @ObservationIgnored private var didRequestInitialWindow = false
+    @ObservationIgnored private var consecutiveUnchangedAutomaticRefreshes = 0
     @ObservationIgnored private var listenerActivitySnapshot = PortActivitySnapshot(
         connectionIDsByListener: [:],
         remoteEndpointsByListener: [:]
@@ -176,6 +189,9 @@ final class PortViewModel {
     func setMainWindowVisible(_ visible: Bool) {
         guard isMainWindowVisible != visible else { return }
         isMainWindowVisible = visible
+        if visible {
+            consecutiveUnchangedAutomaticRefreshes = 0
+        }
         restartRefreshLoop()
         if visible {
             refreshIfStale(maximumAge: 1)
@@ -185,6 +201,9 @@ final class PortViewModel {
     func setMenuBarPanelVisible(_ visible: Bool) {
         guard isMenuBarPanelVisible != visible else { return }
         isMenuBarPanelVisible = visible
+        if visible {
+            consecutiveUnchangedAutomaticRefreshes = 0
+        }
         restartRefreshLoop()
         if visible {
             refreshIfStale(maximumAge: 1)
@@ -211,6 +230,7 @@ final class PortViewModel {
             state = .paused
         } else {
             state = records.isEmpty ? .empty : .ready
+            consecutiveUnchangedAutomaticRefreshes = 0
             restartRefreshLoop()
             refreshNow()
         }
@@ -271,7 +291,7 @@ final class PortViewModel {
 
         do {
             let snapshot = try await queryService.query(policy: .fresh)
-            apply(snapshot)
+            _ = apply(snapshot)
             guard !snapshot.isPartial else {
                 feedback = OperationFeedback(kind: .error, message: "最新查询结果不完整，无法安全校验进程与端口的关联。请重试。")
                 return
@@ -327,7 +347,7 @@ final class PortViewModel {
         do {
             try await Task.sleep(for: force ? .milliseconds(500) : .milliseconds(1_500))
             let snapshot = try await queryService.query(policy: .fresh)
-            apply(snapshot)
+            _ = apply(snapshot)
 
             guard !snapshot.isPartial else {
                 feedback = OperationFeedback(kind: .warning, message: "信号已发送，但最新查询不完整，暂时无法验证端口状态。请重试刷新。")
@@ -364,15 +384,26 @@ final class PortViewModel {
     }
 
     private var currentRefreshInterval: TimeInterval? {
+        let base: TimeInterval
+        let maximum: TimeInterval
         if isMainWindowVisible {
-            return max(3, storedInterval(forKey: "foregroundRefreshInterval", defaultValue: 3))
-        }
-        if isMenuBarPanelVisible {
-            return 5
+            base = max(3, storedInterval(forKey: "foregroundRefreshInterval", defaultValue: 3))
+            maximum = max(base, 10)
+        } else if isMenuBarPanelVisible {
+            base = 5
+            maximum = 15
+        } else {
+            let stored = storedInterval(forKey: "backgroundRefreshInterval", defaultValue: 30)
+            guard stored > 0 else { return nil }
+            base = max(10, stored)
+            maximum = max(base, 60)
         }
 
-        let interval = storedInterval(forKey: "backgroundRefreshInterval", defaultValue: 30)
-        return interval <= 0 ? nil : max(10, interval)
+        return AdaptiveRefreshPolicy.interval(
+            base: base,
+            consecutiveUnchangedRefreshes: consecutiveUnchangedAutomaticRefreshes,
+            maximum: maximum
+        )
     }
 
     private func storedInterval(forKey key: String, defaultValue: TimeInterval) -> TimeInterval {
@@ -423,14 +454,27 @@ final class PortViewModel {
 
         do {
             let snapshot = try await queryService.query(policy: .reuseInFlight)
-            apply(snapshot)
+            let recordsChanged = apply(snapshot)
+            if snapshot.isPartial || recordsChanged {
+                consecutiveUnchangedAutomaticRefreshes = 0
+            } else if reason == .automatic {
+                consecutiveUnchangedAutomaticRefreshes = min(
+                    consecutiveUnchangedAutomaticRefreshes + 1,
+                    9
+                )
+            }
         } catch is CancellationError {
             // Cancellation belongs to the task owner and should not replace the last UI state.
         } catch {
+            consecutiveUnchangedAutomaticRefreshes = 0
+            let failureState: QueryPresentationState
             if let queryError = error as? LsofQueryError, case .unavailable = queryError {
-                state = .unavailable(error.localizedDescription)
+                failureState = .unavailable(error.localizedDescription)
             } else {
-                state = .failed(error.localizedDescription)
+                failureState = .failed(error.localizedDescription)
+            }
+            if state != failureState {
+                state = failureState
             }
         }
 
@@ -442,9 +486,14 @@ final class PortViewModel {
         }
     }
 
-    private func apply(_ snapshot: PortSnapshot) {
+    @discardableResult
+    private func apply(_ snapshot: PortSnapshot) -> Bool {
         updateListenerActivity(with: snapshot)
-        if !records.elementsEqual(snapshot.records, by: { $0.hasSameSnapshotContent(as: $1) }) {
+        let recordsChanged = !records.elementsEqual(
+            snapshot.records,
+            by: { $0.hasSameSnapshotContent(as: $1) }
+        )
+        if recordsChanged {
             records = snapshot.records
             var nextListeningCount = 0
             var nextActiveConnectionCount = 0
@@ -466,44 +515,68 @@ final class PortViewModel {
         if !snapshot.isPartial {
             lastSuccessfulUpdate = snapshot.capturedAt
         }
+        let nextState: QueryPresentationState
         if isPaused {
-            state = .paused
+            nextState = .paused
         } else if snapshot.isPartial {
-            state = .partial("lsof 返回了部分结果；已展示可安全解析的数据。")
+            nextState = .partial("lsof 返回了部分结果；已展示可安全解析的数据。")
         } else {
-            state = snapshot.records.isEmpty ? .empty : .ready
+            nextState = snapshot.records.isEmpty ? .empty : .ready
         }
+        if state != nextState {
+            state = nextState
+        }
+        return recordsChanged
     }
 
     private func updateListenerActivity(with snapshot: PortSnapshot) {
         // Partial lsof output can omit live sockets, so never treat it as evidence that a connection ended.
         guard !snapshot.isPartial else { return }
 
-        let nextSnapshot = PortActivitySnapshot.capture(from: snapshot.records)
-        removeExpiredListenerActivity(referenceDate: snapshot.capturedAt)
+        let nextSnapshot = snapshot.activitySnapshot
+        let removedExpiredActivity = removeExpiredListenerActivity(
+            referenceDate: snapshot.capturedAt
+        )
+        var addedRecentActivity = false
 
         if hasListenerActivityBaseline {
-            let changes = nextSnapshot.changes(
-                comparedTo: listenerActivitySnapshot,
-                observedAt: snapshot.capturedAt
-            )
-            recentListenerActivity.merge(changes) { _, new in new }
+            if nextSnapshot != listenerActivitySnapshot {
+                let changes = nextSnapshot.changes(
+                    comparedTo: listenerActivitySnapshot,
+                    observedAt: snapshot.capturedAt
+                )
+                if !changes.isEmpty {
+                    recentListenerActivity.merge(changes) { _, new in new }
+                    addedRecentActivity = true
+                }
+                listenerActivitySnapshot = nextSnapshot
+            }
         } else {
             hasListenerActivityBaseline = true
+            listenerActivitySnapshot = nextSnapshot
         }
 
-        listenerActivitySnapshot = nextSnapshot
-        scheduleActivityFeedbackCleanup()
+        if removedExpiredActivity || addedRecentActivity {
+            scheduleActivityFeedbackCleanup()
+        }
     }
 
-    private func removeExpiredListenerActivity(referenceDate: Date = Date()) {
-        recentListenerActivity = recentListenerActivity.filter {
+    @discardableResult
+    private func removeExpiredListenerActivity(referenceDate: Date = Date()) -> Bool {
+        guard recentListenerActivity.values.contains(where: {
+            referenceDate.timeIntervalSince($0.observedAt) >= activityFeedbackLifetime
+        }) else { return false }
+
+        let filtered = recentListenerActivity.filter {
             referenceDate.timeIntervalSince($0.value.observedAt) < activityFeedbackLifetime
         }
+        recentListenerActivity = filtered
+        return true
     }
 
     private func scheduleActivityFeedbackCleanup() {
         activityFeedbackCleanupTask?.cancel()
+        activityFeedbackCleanupTask = nil
         guard let nextExpiration = recentListenerActivity.values
             .map({ $0.observedAt.addingTimeInterval(activityFeedbackLifetime) })
             .min() else { return }

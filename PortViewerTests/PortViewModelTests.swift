@@ -4,6 +4,41 @@ import XCTest
 
 @MainActor
 final class PortViewModelTests: XCTestCase {
+    func testAdaptiveRefreshBacksOffOnlyAfterRepeatedUnchangedSnapshots() {
+        XCTAssertEqual(
+            AdaptiveRefreshPolicy.interval(
+                base: 3,
+                consecutiveUnchangedRefreshes: 2,
+                maximum: 10
+            ),
+            3
+        )
+        XCTAssertEqual(
+            AdaptiveRefreshPolicy.interval(
+                base: 3,
+                consecutiveUnchangedRefreshes: 3,
+                maximum: 10
+            ),
+            6
+        )
+        XCTAssertEqual(
+            AdaptiveRefreshPolicy.interval(
+                base: 3,
+                consecutiveUnchangedRefreshes: 6,
+                maximum: 10
+            ),
+            10
+        )
+        XCTAssertEqual(
+            AdaptiveRefreshPolicy.interval(
+                base: 30,
+                consecutiveUnchangedRefreshes: 9,
+                maximum: 60
+            ),
+            60
+        )
+    }
+
     func testRefreshMapsSuccessEmptyPartialFailureAndUnavailableWithoutDiscardingGoodData() async {
         let record = PortTestFixtures.record()
         let query = StubPortQueryService(responses: [

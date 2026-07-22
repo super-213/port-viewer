@@ -166,6 +166,37 @@ final class LsofServiceTests: XCTestCase {
         }
     }
 
+    func testRealProcessBridgeRejectsOutputAboveConfiguredLimit() async {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/oversized-lsof.sh")
+        let runner = LsofProcessRunner(outputByteLimit: 32)
+
+        await XCTAssertThrowsErrorAsync(
+            try await runner.run(executableURL: fixture, timeout: .seconds(5))
+        ) { error in
+            XCTAssertEqual(error as? LsofQueryError, .outputTooLarge)
+        }
+    }
+
+    func testTimeoutFinishesWhenDescendantKeepsStandardOutputOpen() async {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/inherited-stdout-lsof.sh")
+        let service = LsofService(executableURL: fixture, timeout: .milliseconds(100))
+        let startedAt = Date()
+
+        await XCTAssertThrowsErrorAsync(try await service.query()) { error in
+            XCTAssertEqual(error as? LsofQueryError, .timedOut)
+        }
+
+        XCTAssertLessThan(
+            Date().timeIntervalSince(startedAt),
+            1.5,
+            "停止后的查询不应继续等待后代进程持有的管道 EOF"
+        )
+    }
+
     func testProcessServiceMapsMissingProcessAndRecognizesCurrentProcess() {
         let service = ProcessService()
         XCTAssertTrue(service.exists(pid: ProcessInfo.processInfo.processIdentifier))

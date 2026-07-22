@@ -12,7 +12,7 @@ struct SettingsView: View {
             }
 
             Section("自动刷新") {
-                Picker("主窗口可见时", selection: $foregroundRefreshInterval) {
+                Picker("主窗口可见时（最快）", selection: $foregroundRefreshInterval) {
                     Text("3 秒").tag(3.0)
                     Text("5 秒").tag(5.0)
                     Text("10 秒").tag(10.0)
@@ -24,7 +24,7 @@ struct SettingsView: View {
                     Text("30 秒").tag(30.0)
                     Text("60 秒").tag(60.0)
                 }
-                Text("展开菜单栏面板时会立即刷新，并临时使用 5 秒间隔。暂停后不会保留后台定时唤醒。")
+                Text("展开菜单栏面板时会立即刷新。连续多次没有变化时会自动降低查询频率；检测到变化或重新展开窗口后恢复快速刷新。暂停后不会保留后台定时唤醒。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
