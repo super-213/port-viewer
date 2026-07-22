@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-enum ProcessSignalError: LocalizedError {
+enum ProcessSignalError: LocalizedError, Sendable, Equatable {
     case permissionDenied
     case processMissing
     case failed(Int32)
@@ -18,7 +18,7 @@ enum ProcessSignalError: LocalizedError {
     }
 }
 
-struct ProcessController: Sendable {
+struct ProcessService: ProcessControlling {
     func send(signal: Int32, to pid: Int32) throws {
         guard Darwin.kill(pid, signal) == 0 else {
             switch errno {

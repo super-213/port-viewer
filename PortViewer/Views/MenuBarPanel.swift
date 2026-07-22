@@ -2,24 +2,24 @@ import AppKit
 import SwiftUI
 
 struct StatusItemLabel: View {
-    @ObservedObject var store: PortStore
+    let portViewModel: PortViewModel
     @Environment(\.openWindow) private var openWindow
     @AppStorage("menuBarShowsCount") private var showsCount = true
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: store.statusSymbolName)
+            Image(systemName: portViewModel.statusSymbolName)
                 .symbolVariant(.fill)
             if showsCount {
-                Text(store.listeningCount > 999 ? "999+" : String(store.listeningCount))
+                Text(portViewModel.listeningCount > 999 ? "999+" : String(portViewModel.listeningCount))
                     .monospacedDigit()
             }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .task {
-            guard store.claimInitialWindowRequest() else { return }
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard portViewModel.claimInitialWindowRequest() else { return }
+            try? await Task.sleep(for: .milliseconds(300))
             NSApplication.shared.setActivationPolicy(.regular)
             if !NSApplication.shared.windows.contains(where: { $0.title == "Port Viewer" }) {
                 openWindow(id: "main")
@@ -29,30 +29,17 @@ struct StatusItemLabel: View {
     }
 
     private var accessibilityLabel: String {
-        if store.isPaused { return "Port Viewer，自动刷新已暂停" }
-        if store.state.issueMessage != nil { return "Port Viewer，查询异常" }
-        return "Port Viewer，等待连接 \(store.listeningCount) 条"
+        if portViewModel.isPaused { return "Port Viewer，自动刷新已暂停" }
+        if portViewModel.state.issueMessage != nil { return "Port Viewer，查询异常" }
+        return "Port Viewer，等待连接 \(portViewModel.listeningCount) 条"
     }
 }
 
 struct MenuBarPanel: View {
-    @ObservedObject var store: PortStore
+    let portViewModel: PortViewModel
+    @Bindable var viewModel: MenuBarViewModel
+    let mainWindowViewModel: MainWindowViewModel
     @Environment(\.openWindow) private var openWindow
-    @State private var searchText = ""
-
-    private var displayedRecords: [PortRecord] {
-        let listeners = store.records.filter(\.isListening)
-        let sorted = listeners.sorted {
-            if $0.localPortSortValue != $1.localPortSortValue {
-                return $0.localPortSortValue < $1.localPortSortValue
-            }
-            return $0.processName.localizedStandardCompare($1.processName) == .orderedAscending
-        }
-        guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return Array(sorted.prefix(10))
-        }
-        return Array(sorted.filter { PortSearch.rank(of: $0, query: searchText) != nil }.prefix(10))
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -76,18 +63,18 @@ struct MenuBarPanel: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Port Viewer")
                     .font(.headline)
-                Text(updateDescription)
+                Text(viewModel.updateDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
             Button {
-                store.refreshNow()
+                portViewModel.refreshNow()
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            .disabled(store.isRefreshing)
+            .disabled(portViewModel.isRefreshing)
             .help("立即刷新")
             .accessibilityLabel("立即刷新端口列表")
         }
@@ -98,12 +85,12 @@ struct MenuBarPanel: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("搜索应用名称或端口，例如 3000", text: $searchText)
+            TextField("搜索应用名称或端口，例如 3000", text: $viewModel.searchText)
                 .textFieldStyle(.plain)
                 .accessibilityLabel("菜单栏端口搜索")
-            if !searchText.isEmpty {
+            if !viewModel.searchText.isEmpty {
                 Button {
-                    searchText = ""
+                    viewModel.clearSearch()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -119,11 +106,11 @@ struct MenuBarPanel: View {
 
     private var metrics: some View {
         HStack(spacing: 0) {
-            metric(title: "等待连接", value: store.listeningCount, symbol: "dot.radiowaves.left.and.right", color: .green)
+            metric(title: "等待连接", value: portViewModel.listeningCount, symbol: "dot.radiowaves.left.and.right", color: .green)
             Divider().frame(height: 28)
-            metric(title: "连接活动", value: store.activeConnectionCount, symbol: "arrow.left.arrow.right", color: .blue)
+            metric(title: "连接活动", value: portViewModel.activeConnectionCount, symbol: "arrow.left.arrow.right", color: .blue)
             Divider().frame(height: 28)
-            metric(title: "其他网络活动", value: store.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: .secondary)
+            metric(title: "其他网络活动", value: portViewModel.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: .secondary)
         }
         .frame(maxWidth: .infinity)
     }
@@ -144,15 +131,15 @@ struct MenuBarPanel: View {
 
     @ViewBuilder
     private var recordList: some View {
-        if displayedRecords.isEmpty {
+        if viewModel.displayedRecords.isEmpty {
             VStack(spacing: 8) {
-                Image(systemName: searchText.isEmpty ? "checkmark.circle" : "magnifyingglass")
+                Image(systemName: viewModel.searchText.isEmpty ? "checkmark.circle" : "magnifyingglass")
                     .font(.title2)
                     .foregroundStyle(.secondary)
-                Text(searchText.isEmpty ? "当前没有应用在等待连接" : "没有匹配的等待连接活动")
+                Text(viewModel.searchText.isEmpty ? "当前没有应用在等待连接" : "没有匹配的等待连接活动")
                     .font(.callout)
-                if !searchText.isEmpty {
-                    Button("清除搜索") { searchText = "" }
+                if !viewModel.searchText.isEmpty {
+                    Button("清除搜索") { viewModel.clearSearch() }
                         .buttonStyle(.link)
                 }
             }
@@ -160,7 +147,7 @@ struct MenuBarPanel: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(displayedRecords) { record in
+                    ForEach(viewModel.displayedRecords) { record in
                         Button {
                             openMainWindow(selecting: record)
                         } label: {
@@ -208,17 +195,8 @@ struct MenuBarPanel: View {
         .frame(height: 44)
     }
 
-    private var updateDescription: String {
-        if store.isPaused { return "自动刷新已暂停" }
-        if let issue = store.state.issueMessage { return issue }
-        if let date = store.lastSuccessfulUpdate {
-            return "已更新 \(date.formatted(date: .omitted, time: .shortened))"
-        }
-        return "等待首次查询"
-    }
-
     private func openMainWindow(selecting record: PortRecord?) {
-        if let record { store.selectFromMenuBar(record) }
+        if let record { mainWindowViewModel.selectFromMenuBar(record) }
         if let existingWindow = NSApplication.shared.windows.first(where: { $0.title == "Port Viewer" }) {
             existingWindow.makeKeyAndOrderFront(nil)
         } else {

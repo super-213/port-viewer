@@ -1,176 +1,43 @@
 import AppKit
 import SwiftUI
 
-private enum SidebarScope: String, CaseIterable, Identifiable {
-    case all = "全部活动"
-    case waiting = "等待连接"
-    case connections = "连接活动"
-    case other = "其他网络活动"
-
-    var id: Self { self }
-
-    var symbol: String {
-        switch self {
-        case .all: return "list.bullet"
-        case .waiting: return "dot.radiowaves.left.and.right"
-        case .connections: return "arrow.left.arrow.right"
-        case .other: return "antenna.radiowaves.left.and.right"
-        }
-    }
-
-    var explanation: String {
-        switch self {
-        case .all: return "所有端口和网络连接"
-        case .waiting: return "应用正在等待连接"
-        case .connections: return "存在建立中、已建立或关闭中的连接"
-        case .other: return "UDP 及暂时无法归类的活动"
-        }
-    }
-}
-
-private enum AccessFilter: String, CaseIterable, Identifiable {
-    case all = "全部访问范围"
-    case localOnly = "仅这台 Mac"
-    case networkPossible = "可能被其他设备访问"
-    case unknown = "范围不确定"
-
-    var id: Self { self }
-}
-
-private enum OwnerFilter: String, CaseIterable, Identifiable {
-    case all = "全部归属"
-    case current = "我的应用/服务"
-    case others = "其他用户"
-
-    var id: Self { self }
-}
-
-private enum ConnectionPhaseFilter: String, CaseIterable, Identifiable {
-    case all = "全部连接状态"
-    case established = "连接已建立"
-    case transitioning = "正在建立/关闭"
-
-    var id: Self { self }
-}
-
-private enum ProtocolFilter: String, CaseIterable, Identifiable {
-    case all = "全部协议"
-    case tcp = "TCP"
-    case udp = "UDP"
-
-    var id: Self { self }
-}
-
-private enum IPFilter: String, CaseIterable, Identifiable {
-    case all = "全部地址格式"
-    case v4 = "IPv4"
-    case v6 = "IPv6"
-
-    var id: Self { self }
-}
-
 struct MainWindowView: View {
-    @ObservedObject var store: PortStore
+    @Bindable var portViewModel: PortViewModel
+    @Bindable var viewModel: MainWindowViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var scope: SidebarScope = .waiting
-    @State private var searchText = ""
-    @State private var accessFilter: AccessFilter = .all
-    @State private var ownerFilter: OwnerFilter = .all
-    @State private var connectionPhaseFilter: ConnectionPhaseFilter = .all
-    @State private var protocolFilter: ProtocolFilter = .all
-    @State private var ipFilter: IPFilter = .all
-    @State private var stateFilter = ""
-    @State private var selectedID: ReadablePortItem.ID?
-    @State private var lastSelectedItem: ReadablePortItem?
-    @State private var expiredSelection: ReadablePortItem?
-    @State private var expirationToken = UUID()
     @State private var technicalDetailsExpanded = false
-    @State private var sortOrder: [KeyPathComparator<ReadablePortItem>] = [
-        KeyPathComparator(\ReadablePortItem.localPortSortValue),
-        KeyPathComparator(\ReadablePortItem.processSortValue)
-    ]
     @FocusState private var searchIsFocused: Bool
-
-    private var allItems: [ReadablePortItem] {
-        ReadablePortItem.group(store.records)
-    }
-
-    private var selectedItem: ReadablePortItem? {
-        guard let selectedID else { return nil }
-        return allItems.first { $0.id == selectedID }
-            ?? (expiredSelection?.id == selectedID ? expiredSelection : nil)
-    }
-
-    private var selectionHasEnded: Bool {
-        guard let selectedID else { return false }
-        return expiredSelection?.id == selectedID && !allItems.contains { $0.id == selectedID }
-    }
-
-    private var replacementItem: ReadablePortItem? {
-        guard selectionHasEnded, let expiredSelection else { return nil }
-        return allItems.first {
-            $0.pid != expiredSelection.pid
-                && $0.transport == expiredSelection.transport
-                && $0.localPort == expiredSelection.localPort
-        }
-    }
-
-    private var displayedItems: [ReadablePortItem] {
-        var filtered = allItems
-            .filter(matchesScope)
-            .filter(matchesAccess)
-            .filter(matchesOwner)
-            .filter(matchesConnectionPhase)
-            .filter(matchesProtocol)
-            .filter(matchesIPVersion)
-            .filter(matchesState)
-            .filter(matchesSearch)
-
-        filtered.sort(using: sortOrder)
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return filtered }
-
-        return filtered.enumerated().sorted { left, right in
-            let leftRank = searchRank(for: left.element, query: query)
-            let rightRank = searchRank(for: right.element, query: query)
-            return leftRank == rightRank ? left.offset < right.offset : leftRank < rightRank
-        }.map(\.element)
-    }
-
-    private var stateOptions: [String] {
-        Array(Set(store.records.compactMap(\.normalizedState))).sorted()
-    }
 
     var body: some View {
         NavigationSplitView {
             sidebar
         } detail: {
             VStack(spacing: 0) {
-                if let issue = store.state.issueMessage {
+                if let issue = portViewModel.state.issueMessage {
                     QueryBanner(message: issue, symbol: "exclamationmark.triangle.fill", color: .orange) {
-                        store.refreshNow()
+                        portViewModel.refreshNow()
                     }
-                } else if store.isPaused {
+                } else if portViewModel.isPaused {
                     QueryBanner(message: "自动刷新已暂停，当前数据可能已过期。", symbol: "pause.circle.fill", color: .secondary) {
-                        store.togglePause()
+                        portViewModel.togglePause()
                     }
                 }
 
-                OverviewBar(store: store)
+                OverviewBar(portViewModel: portViewModel)
                 Divider()
                 FilterBar(
-                    scope: $scope,
-                    accessFilter: $accessFilter,
-                    ownerFilter: $ownerFilter,
-                    connectionPhaseFilter: $connectionPhaseFilter,
-                    protocolFilter: $protocolFilter,
-                    ipFilter: $ipFilter,
-                    stateFilter: $stateFilter,
-                    stateOptions: stateOptions,
-                    activeFilterLabels: activeFilterLabels,
-                    clearFilter: clearFilter,
-                    reset: resetFilters
+                    scope: $viewModel.scope,
+                    accessFilter: $viewModel.accessFilter,
+                    ownerFilter: $viewModel.ownerFilter,
+                    connectionPhaseFilter: $viewModel.connectionPhaseFilter,
+                    protocolFilter: $viewModel.protocolFilter,
+                    ipFilter: $viewModel.ipFilter,
+                    stateFilter: $viewModel.stateFilter,
+                    stateOptions: viewModel.stateOptions,
+                    activeFilterLabels: viewModel.activeFilterLabels,
+                    clearFilter: viewModel.clearFilter,
+                    reset: viewModel.resetFilters
                 )
                 Divider()
 
@@ -179,85 +46,59 @@ struct MainWindowView: View {
 
                 Divider()
                 RecordDetailView(
-                    item: selectedItem,
-                    hasEnded: selectionHasEnded,
-                    replacement: replacementItem,
-                    allItems: allItems,
-                    allRecords: store.records,
-                    queryDuration: store.lastQueryDuration,
+                    item: viewModel.selectedItem,
+                    hasEnded: viewModel.selectionHasEnded,
+                    replacement: viewModel.replacementItem,
+                    allItems: viewModel.allItems,
+                    allRecords: portViewModel.records,
+                    queryDuration: portViewModel.lastQueryDuration,
                     technicalDetailsExpanded: $technicalDetailsExpanded,
-                    store: store,
-                    onSelectItem: select,
-                    onDismissEnded: clearSelection
+                    portViewModel: portViewModel,
+                    onSelectItem: viewModel.select,
+                    onDismissEnded: viewModel.clearSelection
                 )
                 .frame(minHeight: 300, idealHeight: 360, maxHeight: 500)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: selectedItem?.id)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: viewModel.selectedItem?.id)
             }
             .background(Color(nsColor: .windowBackgroundColor))
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 980, minHeight: 720)
-        .searchable(text: $searchText, placement: .toolbar, prompt: "搜索应用名称或端口，例如 3000")
+        .searchable(text: $viewModel.searchText, placement: .toolbar, prompt: "搜索应用名称或端口，例如 3000")
         .searchFocused($searchIsFocused)
         .toolbar { toolbarContent }
         .onAppear {
-            store.setMainWindowVisible(true)
-            adoptRequestedSelection(store.requestedSelectionID)
+            portViewModel.setMainWindowVisible(true)
         }
-        .onDisappear { store.setMainWindowVisible(false) }
+        .onDisappear { portViewModel.setMainWindowVisible(false) }
         .onReceive(NotificationCenter.default.publisher(for: .focusPortSearch)) { _ in
             searchIsFocused = true
         }
-        .onChange(of: store.requestedSelectionID) { _, newValue in
-            adoptRequestedSelection(newValue)
+        .onChange(of: viewModel.recordIDs) { _, _ in
+            viewModel.reconcileSelectionAfterRefresh()
         }
-        .onChange(of: scope) { _, newValue in
-            if newValue != .connections {
-                connectionPhaseFilter = .all
-            }
-        }
-        .onChange(of: selectedID) { _, newValue in
-            guard let newValue else {
-                lastSelectedItem = nil
-                expiredSelection = nil
-                return
-            }
-            if let liveItem = allItems.first(where: { $0.id == newValue }) {
-                lastSelectedItem = liveItem
-                expiredSelection = nil
-            }
-        }
-        .onChange(of: allItems.map(\.id)) { _, _ in
-            reconcileSelectionAfterRefresh()
-        }
-        .onExitCommand {
-            if !searchText.isEmpty {
-                searchText = ""
-            } else if hasActiveFilters {
-                resetFilters()
-            }
-        }
-        .alert(item: $store.terminationPrompt) { prompt in
+        .onExitCommand(perform: viewModel.handleExitCommand)
+        .alert(item: $portViewModel.terminationPrompt) { prompt in
             Alert(
                 title: Text(prompt.title),
                 message: Text(prompt.message),
                 primaryButton: .cancel(Text("取消")),
                 secondaryButton: .destructive(Text(prompt.actionTitle)) {
-                    Task { await store.confirmTermination(prompt) }
+                    portViewModel.confirmTermination(prompt)
                 }
             )
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let feedback = store.feedback {
+            if let feedback = portViewModel.feedback {
                 OperationFeedbackBar(feedback: feedback) {
-                    store.dismissFeedback()
+                    portViewModel.dismissFeedback()
                 }
             }
         }
     }
 
     private var sidebar: some View {
-        List(SidebarScope.allCases, selection: $scope) { item in
+        List(SidebarScope.allCases, selection: $viewModel.scope) { item in
             Label {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -268,7 +109,7 @@ struct MainWindowView: View {
                             .lineLimit(2)
                     }
                     Spacer(minLength: 4)
-                    Text(String(count(for: item)))
+                    Text(String(viewModel.count(for: item)))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
@@ -276,7 +117,7 @@ struct MainWindowView: View {
                 Image(systemName: item.symbol)
             }
             .tag(item)
-            .accessibilityLabel("\(item.rawValue)，\(count(for: item)) 条。\(item.explanation)")
+            .accessibilityLabel("\(item.rawValue)，\(viewModel.count(for: item)) 条。\(item.explanation)")
         }
         .listStyle(.sidebar)
         .navigationTitle("Port Viewer")
@@ -287,19 +128,19 @@ struct MainWindowView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
-                store.togglePause()
+                portViewModel.togglePause()
             } label: {
-                Label(store.isPaused ? "继续自动刷新" : "暂停自动刷新", systemImage: store.isPaused ? "play.fill" : "pause.fill")
+                Label(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新", systemImage: portViewModel.isPaused ? "play.fill" : "pause.fill")
             }
-            .help(store.isPaused ? "继续自动刷新" : "暂停自动刷新")
-            .accessibilityLabel(store.isPaused ? "继续自动刷新" : "暂停自动刷新")
+            .help(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
+            .accessibilityLabel(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
 
             Button {
-                store.refreshNow()
+                portViewModel.refreshNow()
             } label: {
                 Label("立即刷新", systemImage: "arrow.clockwise")
             }
-            .disabled(store.isRefreshing)
+            .disabled(portViewModel.isRefreshing)
             .help("立即刷新（Command-R）")
             .accessibilityLabel("立即刷新网络活动列表")
 
@@ -312,241 +153,40 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private var tableOrState: some View {
-        if store.state == .loading && store.records.isEmpty {
+        if portViewModel.state == .loading && portViewModel.records.isEmpty {
             VStack(spacing: 12) {
                 ProgressView()
                 Text("正在查询这台 Mac 的网络活动…")
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if displayedItems.isEmpty {
+        } else if viewModel.displayedItems.isEmpty {
             ContentUnavailableView {
-                Label(emptyStateTitle, systemImage: searchText.isEmpty ? "tray" : "magnifyingglass")
+                Label(viewModel.emptyStateTitle, systemImage: viewModel.searchText.isEmpty ? "tray" : "magnifyingglass")
             } description: {
-                Text(emptyStateDescription)
+                Text(viewModel.emptyStateDescription)
             } actions: {
-                if !searchText.isEmpty || hasActiveFilters {
+                if !viewModel.searchText.isEmpty || viewModel.hasActiveFilters {
                     Button("清除搜索与筛选") {
-                        searchText = ""
-                        resetFilters()
+                        viewModel.clearSearchAndFilters()
                     }
                 } else {
-                    Button("重新查询") { store.refreshNow() }
+                    Button("重新查询") { portViewModel.refreshNow() }
                 }
             }
         } else {
-            PortTable(items: displayedItems, store: store, selectedID: $selectedID, sortOrder: $sortOrder)
+            PortTable(
+                items: viewModel.displayedItems,
+                portViewModel: portViewModel,
+                selectedID: $viewModel.selectedID,
+                sortOrder: $viewModel.sortOrder
+            )
         }
-    }
-
-    private var emptyStateTitle: String {
-        if !searchText.isEmpty { return "没有找到“\(searchText)”" }
-        if hasActiveFilters { return "当前条件下没有网络活动" }
-        return scope == .waiting ? "当前没有应用在等待连接" : "当前没有网络活动"
-    }
-
-    private var emptyStateDescription: String {
-        if !searchText.isEmpty {
-            return "没有应用名称、端口或进程编号匹配当前搜索与筛选条件。"
-        }
-        if hasActiveFilters {
-            return "没有找到“\(activeFilterLabels.joined(separator: "、"))”的网络活动。"
-        }
-        return "系统查询没有返回这一类 TCP 或 UDP 记录。"
-    }
-
-    private var hasActiveFilters: Bool {
-        scope != .all
-            || accessFilter != .all
-            || ownerFilter != .all
-            || connectionPhaseFilter != .all
-            || protocolFilter != .all
-            || ipFilter != .all
-            || !stateFilter.isEmpty
-    }
-
-    private var activeFilterLabels: [String] {
-        var labels: [String] = []
-        if scope != .all { labels.append(scope.rawValue) }
-        if accessFilter != .all { labels.append(accessFilter.rawValue) }
-        if ownerFilter != .all { labels.append(ownerFilter.rawValue) }
-        if connectionPhaseFilter != .all { labels.append(connectionPhaseFilter.rawValue) }
-        if protocolFilter != .all { labels.append(protocolFilter.rawValue) }
-        if ipFilter != .all { labels.append(ipFilter.rawValue) }
-        if !stateFilter.isEmpty {
-            labels.append("\(PortRecord.friendlyStatusTitle(for: stateFilter))（\(stateFilter)）")
-        }
-        return labels
-    }
-
-    private func clearFilter(_ label: String) {
-        if label == scope.rawValue { scope = .all }
-        if label == accessFilter.rawValue { accessFilter = .all }
-        if label == ownerFilter.rawValue { ownerFilter = .all }
-        if label == connectionPhaseFilter.rawValue { connectionPhaseFilter = .all }
-        if label == protocolFilter.rawValue { protocolFilter = .all }
-        if label == ipFilter.rawValue { ipFilter = .all }
-        if label.contains("（\(stateFilter)）") { stateFilter = "" }
-    }
-
-    private func resetFilters() {
-        scope = .all
-        accessFilter = .all
-        ownerFilter = .all
-        connectionPhaseFilter = .all
-        protocolFilter = .all
-        ipFilter = .all
-        stateFilter = ""
-    }
-
-    private func select(_ item: ReadablePortItem) {
-        selectedID = item.id
-        lastSelectedItem = item
-        expiredSelection = nil
-    }
-
-    private func clearSelection() {
-        selectedID = nil
-        lastSelectedItem = nil
-        expiredSelection = nil
-        expirationToken = UUID()
-    }
-
-    private func adoptRequestedSelection(_ rawRecordID: String?) {
-        guard let rawRecordID,
-              let item = allItems.first(where: { candidate in
-                  candidate.rawRecords.contains { $0.id == rawRecordID }
-              }) else { return }
-        scope = .all
-        searchText = ""
-        accessFilter = .all
-        ownerFilter = .all
-        connectionPhaseFilter = .all
-        protocolFilter = .all
-        ipFilter = .all
-        stateFilter = ""
-        select(item)
-    }
-
-    private func reconcileSelectionAfterRefresh() {
-        guard let selectedID else { return }
-        if let liveItem = allItems.first(where: { $0.id == selectedID }) {
-            lastSelectedItem = liveItem
-            expiredSelection = nil
-            return
-        }
-        if let lastSelectedItem,
-           let continuation = allItems.first(where: { candidate in
-               candidate.rawRecords.contains { current in
-                   lastSelectedItem.rawRecords.contains { previous in
-                       current.id == previous.id
-                           || (current.pid == previous.pid
-                               && current.fileDescriptor == previous.fileDescriptor
-                               && current.transport == previous.transport
-                               && current.localEndpoint == previous.localEndpoint)
-                   }
-               }
-           }) {
-            self.selectedID = continuation.id
-            self.lastSelectedItem = continuation
-            expiredSelection = nil
-            return
-        }
-        guard expiredSelection == nil, let lastSelectedItem else { return }
-
-        expiredSelection = lastSelectedItem
-        let token = UUID()
-        expirationToken = token
-        Task {
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            await MainActor.run {
-                guard expirationToken == token,
-                      self.selectedID == selectedID,
-                      !allItems.contains(where: { $0.id == selectedID }) else { return }
-                clearSelection()
-            }
-        }
-    }
-
-    private func count(for scope: SidebarScope) -> Int {
-        store.records.lazy.filter { record in
-            switch scope {
-            case .all: return true
-            case .waiting: return record.isListening
-            case .connections: return record.isActiveConnection
-            case .other: return !record.isListening && !record.isActiveConnection
-            }
-        }.count
-    }
-
-    private func matchesScope(_ item: ReadablePortItem) -> Bool {
-        let record = item.representative
-        switch scope {
-        case .all: return true
-        case .waiting: return record.isListening
-        case .connections: return record.isActiveConnection
-        case .other: return !record.isListening && !record.isActiveConnection
-        }
-    }
-
-    private func matchesAccess(_ item: ReadablePortItem) -> Bool {
-        guard accessFilter == .all || item.representative.isListening else { return false }
-        switch accessFilter {
-        case .all: return true
-        case .localOnly: return item.accessScope == .localOnly
-        case .networkPossible: return item.accessScope == .networkPossible
-        case .unknown: return item.accessScope == .unknown
-        }
-    }
-
-    private func matchesOwner(_ item: ReadablePortItem) -> Bool {
-        switch ownerFilter {
-        case .all: return true
-        case .current: return item.representative.belongsToCurrentUser
-        case .others: return !item.representative.belongsToCurrentUser
-        }
-    }
-
-    private func matchesConnectionPhase(_ item: ReadablePortItem) -> Bool {
-        guard scope == .connections else { return true }
-        switch connectionPhaseFilter {
-        case .all: return true
-        case .established: return item.activityKind == .connected
-        case .transitioning: return item.activityKind == .transitioning
-        }
-    }
-
-    private func matchesProtocol(_ item: ReadablePortItem) -> Bool {
-        switch protocolFilter {
-        case .all: return true
-        case .tcp: return item.rawRecords.contains { $0.transport == .tcp }
-        case .udp: return item.rawRecords.contains { $0.transport == .udp }
-        }
-    }
-
-    private func matchesIPVersion(_ item: ReadablePortItem) -> Bool {
-        switch ipFilter {
-        case .all: return true
-        case .v4: return item.rawRecords.contains { $0.ipVersion == .v4 }
-        case .v6: return item.rawRecords.contains { $0.ipVersion == .v6 }
-        }
-    }
-
-    private func matchesState(_ item: ReadablePortItem) -> Bool {
-        stateFilter.isEmpty || item.rawRecords.contains { $0.normalizedState == stateFilter }
-    }
-
-    private func matchesSearch(_ item: ReadablePortItem) -> Bool {
-        item.rawRecords.contains { PortSearch.rank(of: $0, query: searchText) != nil }
-    }
-
-    private func searchRank(for item: ReadablePortItem, query: String) -> Int {
-        item.rawRecords.compactMap { PortSearch.rank(of: $0, query: query) }.min() ?? Int.max
     }
 }
 
 private struct OverviewBar: View {
-    @ObservedObject var store: PortStore
+    let portViewModel: PortViewModel
     @State private var help: OverviewHelp?
 
     private enum OverviewHelp: String, Identifiable {
@@ -569,9 +209,9 @@ private struct OverviewBar: View {
 
     var body: some View {
         HStack(spacing: 20) {
-            metric(.waiting, value: store.listeningCount, symbol: "dot.radiowaves.left.and.right", color: .green)
-            metric(.connections, value: store.activeConnectionCount, symbol: "arrow.left.arrow.right", color: .blue)
-            metric(.other, value: store.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: .secondary)
+            metric(.waiting, value: portViewModel.listeningCount, symbol: "dot.radiowaves.left.and.right", color: .green)
+            metric(.connections, value: portViewModel.activeConnectionCount, symbol: "arrow.left.arrow.right", color: .blue)
+            metric(.other, value: portViewModel.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: .secondary)
             Spacer()
             Text(updateDescription)
                 .foregroundStyle(.secondary)
@@ -605,7 +245,7 @@ private struct OverviewBar: View {
     }
 
     private var updateDescription: String {
-        guard let update = store.lastSuccessfulUpdate else { return "等待首次查询" }
+        guard let update = portViewModel.lastSuccessfulUpdate else { return "等待首次查询" }
         let elapsed = Date().timeIntervalSince(update)
         if elapsed < 10 { return "刚刚更新" }
         return "已更新 \(update.formatted(.relative(presentation: .named)))"
@@ -776,13 +416,13 @@ private struct MoreFiltersPopover: View {
 
 private struct PortTable: View {
     let items: [ReadablePortItem]
-    @ObservedObject var store: PortStore
+    let portViewModel: PortViewModel
     @Binding var selectedID: ReadablePortItem.ID?
-    @Binding var sortOrder: [KeyPathComparator<ReadablePortItem>]
+    @Binding var sortOrder: [ReadablePortSortComparator]
 
     var body: some View {
         Table(items, selection: $selectedID, sortOrder: $sortOrder) {
-            TableColumn("应用/服务", value: \.processSortValue) { item in
+            TableColumn("应用/服务", sortUsing: ReadablePortSortComparator(field: .process)) { item in
                 HStack(spacing: 8) {
                     ProcessIconView(record: item.representative, size: 20)
                     VStack(alignment: .leading, spacing: 1) {
@@ -811,18 +451,18 @@ private struct PortTable: View {
             }
             .width(min: 180, ideal: 230)
 
-            TableColumn("端口", value: \.localPortSortValue) { item in
+            TableColumn("端口", sortUsing: ReadablePortSortComparator(field: .localPort)) { item in
                 Text(item.localPortText)
                     .font(.system(.body, design: .monospaced, weight: .medium))
             }
             .width(min: 70, ideal: 90, max: 110)
 
-            TableColumn("正在做什么", value: \.statusSortValue) { item in
-                PortStatusCell(item: item, store: store)
+            TableColumn("正在做什么", sortUsing: ReadablePortSortComparator(field: .status)) { item in
+                PortStatusCell(item: item, portViewModel: portViewModel)
             }
             .width(min: 155, ideal: 205)
 
-            TableColumn("访问范围/连接到", value: \.connectionSortValue) { item in
+            TableColumn("访问范围/连接到", sortUsing: ReadablePortSortComparator(field: .connection)) { item in
                 ConnectionDisplayLabel(item: item)
             }
             .width(min: 210, ideal: 280)
@@ -892,11 +532,11 @@ private struct FriendlyStatusLabel: View {
 
 private struct PortStatusCell: View {
     let item: ReadablePortItem
-    @ObservedObject var store: PortStore
+    let portViewModel: PortViewModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var activitySummary: ListenerActivitySummary? {
-        store.listenerActivitySummary(for: item)
+        portViewModel.listenerActivitySummary(for: item)
     }
 
     var body: some View {
@@ -966,7 +606,7 @@ private struct RecordDetailView: View {
     let allRecords: [PortRecord]
     let queryDuration: TimeInterval?
     @Binding var technicalDetailsExpanded: Bool
-    @ObservedObject var store: PortStore
+    let portViewModel: PortViewModel
     let onSelectItem: (ReadablePortItem) -> Void
     let onDismissEnded: () -> Void
 
@@ -986,7 +626,7 @@ private struct RecordDetailView: View {
 
                         ConnectionDiagramView(item: item)
 
-                        if let activitySummary = store.listenerActivitySummary(for: item) {
+                        if let activitySummary = portViewModel.listenerActivitySummary(for: item) {
                             ListenerPortActivityView(summary: activitySummary)
                         }
 
@@ -1083,9 +723,9 @@ private struct RecordDetailView: View {
             }
             Spacer()
             Button("结束进程…", role: .destructive) {
-                Task { await store.prepareToTerminate(record) }
+                portViewModel.prepareToTerminate(record)
             }
-            .disabled(store.isRefreshing || !isAllowed)
+            .disabled(portViewModel.isRefreshing || !isAllowed)
             .help(terminationHelp(for: record))
             .accessibilityHint(terminationHelp(for: record))
         }

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Observation
 
 enum QueryPresentationState: Equatable {
     case loading
@@ -77,17 +78,17 @@ struct TerminationPrompt: Identifiable, Equatable {
 }
 
 @MainActor
-final class PortStore: ObservableObject {
-    @Published private(set) var records: [PortRecord] = []
-    @Published private(set) var state: QueryPresentationState = .loading
-    @Published private(set) var lastSuccessfulUpdate: Date?
-    @Published private(set) var lastQueryDuration: TimeInterval?
-    @Published private(set) var isRefreshing = false
-    @Published private(set) var isPaused = false
-    @Published private(set) var recentListenerActivity: [ListenerActivityKey: RecentPortActivityChange] = [:]
-    @Published var terminationPrompt: TerminationPrompt?
-    @Published var feedback: OperationFeedback?
-    @Published var requestedSelectionID: String?
+@Observable
+final class PortViewModel {
+    private(set) var records: [PortRecord] = []
+    private(set) var state: QueryPresentationState = .loading
+    private(set) var lastSuccessfulUpdate: Date?
+    private(set) var lastQueryDuration: TimeInterval?
+    private(set) var isRefreshing = false
+    private(set) var isPaused = false
+    private(set) var recentListenerActivity: [ListenerActivityKey: RecentPortActivityChange] = [:]
+    var terminationPrompt: TerminationPrompt?
+    var feedback: OperationFeedback?
 
     private enum RefreshReason {
         case initial
@@ -95,31 +96,37 @@ final class PortStore: ObservableObject {
         case manual
     }
 
-    private let queryClient: LsofClient
-    private let processController: ProcessController
-    private var refreshLoop: Task<Void, Never>?
-    private var activityFeedbackCleanupTask: Task<Void, Never>?
-    private var queuedRefresh = false
-    private var isMainWindowVisible = true
-    private var didRequestInitialWindow = false
-    private var listenerActivitySnapshot = PortActivitySnapshot(
+    @ObservationIgnored private let queryService: any PortQuerying
+    @ObservationIgnored private let processService: any ProcessControlling
+    @ObservationIgnored private var refreshLoop: Task<Void, Never>?
+    @ObservationIgnored private var manualRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var terminationTask: Task<Void, Never>?
+    @ObservationIgnored private var activityFeedbackCleanupTask: Task<Void, Never>?
+    @ObservationIgnored private var queryCancellationTask: Task<Void, Never>?
+    @ObservationIgnored private var queuedRefresh = false
+    @ObservationIgnored private var isMainWindowVisible = true
+    @ObservationIgnored private var didRequestInitialWindow = false
+    @ObservationIgnored private var listenerActivitySnapshot = PortActivitySnapshot(
         connectionIDsByListener: [:],
         remoteEndpointsByListener: [:]
     )
-    private var hasListenerActivityBaseline = false
-    private let activityFeedbackLifetime: TimeInterval = 5
+    @ObservationIgnored private var hasListenerActivityBaseline = false
+    @ObservationIgnored private let activityFeedbackLifetime: TimeInterval = 5
 
     init(
-        queryClient: LsofClient = LsofClient(),
-        processController: ProcessController = ProcessController()
+        queryService: any PortQuerying,
+        processService: any ProcessControlling
     ) {
-        self.queryClient = queryClient
-        self.processController = processController
+        self.queryService = queryService
+        self.processService = processService
     }
 
     deinit {
         refreshLoop?.cancel()
+        manualRefreshTask?.cancel()
+        terminationTask?.cancel()
         activityFeedbackCleanupTask?.cancel()
+        queryCancellationTask?.cancel()
     }
 
     var listeningCount: Int { records.lazy.filter(\.isListening).count }
@@ -138,19 +145,37 @@ final class PortStore: ObservableObject {
 
     func start() {
         guard refreshLoop == nil else { return }
-        Task { await refresh(reason: .initial) }
         refreshLoop = Task { [weak self] in
+            guard let self else { return }
+            await refresh(reason: .initial)
+
             while !Task.isCancelled {
-                guard let self else { return }
-                let interval = self.currentRefreshInterval
+                let interval = currentRefreshInterval
                 do {
-                    try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                    try await Task.sleep(for: .seconds(interval))
                 } catch {
                     return
                 }
-                guard !Task.isCancelled, !self.isPaused else { continue }
-                await self.refresh(reason: .automatic)
+                guard !Task.isCancelled, !isPaused else { continue }
+                await refresh(reason: .automatic)
             }
+        }
+    }
+
+    func stop() {
+        refreshLoop?.cancel()
+        refreshLoop = nil
+        manualRefreshTask?.cancel()
+        manualRefreshTask = nil
+        terminationTask?.cancel()
+        terminationTask = nil
+        activityFeedbackCleanupTask?.cancel()
+        activityFeedbackCleanupTask = nil
+
+        queryCancellationTask?.cancel()
+        let queryService = queryService
+        queryCancellationTask = Task {
+            await queryService.cancelCurrentQuery()
         }
     }
 
@@ -165,7 +190,15 @@ final class PortStore: ObservableObject {
     }
 
     func refreshNow() {
-        Task { await refresh(reason: .manual) }
+        guard manualRefreshTask == nil else {
+            queuedRefresh = true
+            return
+        }
+        manualRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            await refresh(reason: .manual)
+            manualRefreshTask = nil
+        }
     }
 
     func togglePause() {
@@ -176,10 +209,6 @@ final class PortStore: ObservableObject {
             state = records.isEmpty ? .empty : .ready
             refreshNow()
         }
-    }
-
-    func selectFromMenuBar(_ record: PortRecord) {
-        requestedSelectionID = record.id
     }
 
     func dismissFeedback() {
@@ -194,7 +223,35 @@ final class PortStore: ObservableObject {
         )
     }
 
-    func prepareToTerminate(_ staleRecord: PortRecord) async {
+    func prepareToTerminate(_ staleRecord: PortRecord) {
+        terminationTask?.cancel()
+        terminationTask = Task { [weak self] in
+            await self?.performPreparation(for: staleRecord)
+        }
+    }
+
+    func confirmTermination(_ prompt: TerminationPrompt) {
+        terminationTask?.cancel()
+        terminationTask = Task { [weak self] in
+            await self?.performTermination(prompt)
+        }
+    }
+
+    #if DEBUG
+    func refreshForTesting() async {
+        await refresh(reason: .manual)
+    }
+
+    func waitForManualRefreshForTesting() async {
+        await manualRefreshTask?.value
+    }
+
+    func waitForTerminationTaskForTesting() async {
+        await terminationTask?.value
+    }
+    #endif
+
+    private func performPreparation(for staleRecord: PortRecord) async {
         guard staleRecord.belongsToCurrentUser else {
             feedback = OperationFeedback(
                 kind: .error,
@@ -204,7 +261,7 @@ final class PortStore: ObservableObject {
         }
 
         do {
-            let snapshot = try await queryClient.query()
+            let snapshot = try await queryService.query(policy: .fresh)
             apply(snapshot)
             guard !snapshot.isPartial else {
                 feedback = OperationFeedback(kind: .error, message: "最新查询结果不完整，无法安全校验进程与端口的关联。请重试。")
@@ -212,7 +269,7 @@ final class PortStore: ObservableObject {
             }
 
             guard let liveRecord = snapshot.records.first(where: { $0.matchesTarget(staleRecord) }) else {
-                let processStillExists = processController.exists(pid: staleRecord.pid)
+                let processStillExists = processService.exists(pid: staleRecord.pid)
                 feedback = OperationFeedback(
                     kind: .information,
                     message: processStillExists
@@ -232,6 +289,8 @@ final class PortStore: ObservableObject {
                 otherOccupants: occupantLabels(for: liveRecord, in: snapshot.records),
                 isCritical: ProcessProtectionPolicy.isCritical(liveRecord)
             )
+        } catch is CancellationError {
+            return
         } catch {
             feedback = OperationFeedback(
                 kind: .error,
@@ -240,7 +299,7 @@ final class PortStore: ObservableObject {
         }
     }
 
-    func confirmTermination(_ prompt: TerminationPrompt) async {
+    private func performTermination(_ prompt: TerminationPrompt) async {
         terminationPrompt = nil
 
         let force = prompt.stage == .force
@@ -250,16 +309,15 @@ final class PortStore: ObservableObject {
         }
 
         do {
-            try processController.send(signal: force ? SIGKILL : SIGTERM, to: prompt.record.pid)
+            try processService.send(signal: force ? SIGKILL : SIGTERM, to: prompt.record.pid)
         } catch {
             feedback = OperationFeedback(kind: .error, message: error.localizedDescription)
             return
         }
 
         do {
-            let delay: UInt64 = force ? 500_000_000 : 1_500_000_000
-            try await Task.sleep(nanoseconds: delay)
-            let snapshot = try await queryClient.query()
+            try await Task.sleep(for: force ? .milliseconds(500) : .milliseconds(1_500))
+            let snapshot = try await queryService.query(policy: .fresh)
             apply(snapshot)
 
             guard !snapshot.isPartial else {
@@ -312,8 +370,10 @@ final class PortStore: ObservableObject {
         isRefreshing = true
 
         do {
-            let snapshot = try await queryClient.query()
+            let snapshot = try await queryService.query(policy: .reuseInFlight)
             apply(snapshot)
+        } catch is CancellationError {
+            // Cancellation belongs to the task owner and should not replace the last UI state.
         } catch {
             if let queryError = error as? LsofQueryError, case .unavailable = queryError {
                 state = .unavailable(error.localizedDescription)
@@ -324,7 +384,7 @@ final class PortStore: ObservableObject {
 
         isRefreshing = false
 
-        if queuedRefresh {
+        if queuedRefresh, !Task.isCancelled {
             queuedRefresh = false
             await refresh(reason: .manual)
         }
@@ -382,13 +442,13 @@ final class PortStore: ObservableObject {
         let delay = max(0, nextExpiration.timeIntervalSinceNow)
         activityFeedbackCleanupTask = Task { [weak self] in
             do {
-                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                try await Task.sleep(for: .seconds(delay))
             } catch {
                 return
             }
             guard let self else { return }
-            self.removeExpiredListenerActivity()
-            self.scheduleActivityFeedbackCleanup()
+            removeExpiredListenerActivity()
+            scheduleActivityFeedbackCleanup()
         }
     }
 

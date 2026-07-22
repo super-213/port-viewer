@@ -84,7 +84,7 @@ xcodebuild \
 
 ## 技术架构
 
-项目采用轻量的 **MVVM + Service** 分层。`PortViewerApp` 创建唯一的 `PortStore`，主窗口、菜单栏和命令菜单共享这份状态；系统查询和进程操作集中在 Service 层，界面不直接执行系统命令。
+项目采用 **MVVM + Service + Observation + Swift Concurrency**。`PortViewerApp` 是组合根，显式创建协议化 Service、全局 `PortViewModel` 和两个页面级 ViewModel。主窗口与菜单栏共享同一份查询快照，但各自保留独立的搜索、筛选与选择状态；View 不直接执行系统命令。
 
 ```mermaid
 flowchart LR
@@ -94,15 +94,19 @@ flowchart LR
         KILL["Darwin.kill"]
     end
 
-    subgraph Services["Service 层"]
-        CLIENT["LsofClient actor"]
+    subgraph Services["协议化 Service 层"]
+        QUERY["PortQuerying"]
+        CLIENT["LsofService actor"]
         PARSER["LsofParser"]
-        CONTROLLER["ProcessController"]
+        CONTROL["ProcessControlling"]
+        CONTROLLER["ProcessService"]
     end
 
-    subgraph State["状态与模型层"]
+    subgraph State["@MainActor Observation ViewModel"]
         RAW["PortRecord / PortSnapshot"]
-        STORE["PortStore @MainActor"]
+        STORE["PortViewModel"]
+        MAIN_VM["MainWindowViewModel"]
+        MENU_VM["MenuBarViewModel"]
         PRESENTATION["ReadablePortItem / 活动快照"]
     end
 
@@ -112,14 +116,13 @@ flowchart LR
         SETTINGS["设置页"]
     end
 
-    LSOF --> CLIENT --> PARSER --> RAW --> STORE --> PRESENTATION
+    LSOF --> CLIENT
     PROC --> CLIENT
-    STORE --> MAIN
-    PRESENTATION --> MAIN
-    STORE --> MENU
-    RAW --> MENU
+    QUERY --> CLIENT --> PARSER --> RAW --> STORE
+    STORE --> MAIN_VM --> PRESENTATION --> MAIN
+    STORE --> MENU_VM --> MENU
     SETTINGS -. "UserDefaults" .-> STORE
-    STORE --> CONTROLLER --> KILL
+    STORE --> CONTROL --> CONTROLLER --> KILL
 ```
 
 > 图中的 `proc_pidpath` 用于补充可执行文件路径；`Darwin.kill` 仅在用户确认结束进程后调用。
@@ -128,28 +131,31 @@ flowchart LR
 
 | 层级 | 主要文件 | 职责 |
 |---|---|---|
-| 应用入口 | [`PortViewerApp.swift`](PortViewer/PortViewerApp.swift) | 注册主窗口、`MenuBarExtra`、设置页和全局快捷命令，创建共享 `PortStore` |
-| 展示层 | [`MainWindowView.swift`](PortViewer/Views/MainWindowView.swift)、[`MenuBarPanel.swift`](PortViewer/Views/MenuBarPanel.swift)、[`SettingsView.swift`](PortViewer/Views/SettingsView.swift) | 列表、筛选、连接关系图、技术详情、菜单栏和刷新设置 |
-| 状态层 | [`PortStore.swift`](PortViewer/ViewModels/PortStore.swift) | 管理查询状态、自动刷新、快照、连接变化、选择联动、结束进程确认与反馈 |
+| 应用入口 | [`PortViewerApp.swift`](PortViewer/PortViewerApp.swift) | 注册窗口、菜单栏、设置与命令，显式组装 Service 和 ViewModel，并管理应用级启动/停止 |
+| 展示层 | [`MainWindowView.swift`](PortViewer/Views/MainWindowView.swift)、[`MenuBarPanel.swift`](PortViewer/Views/MenuBarPanel.swift)、[`SettingsView.swift`](PortViewer/Views/SettingsView.swift) | 布局、绑定、焦点和局部展开状态；用户事件转发给 ViewModel |
+| 全局 ViewModel | [`PortViewModel.swift`](PortViewer/ViewModels/PortViewModel.swift) | 共享快照、刷新循环、查询状态、连接变化以及结束进程安全用例 |
+| 页面 ViewModel | [`MainWindowViewModel.swift`](PortViewer/ViewModels/MainWindowViewModel.swift)、[`MenuBarViewModel.swift`](PortViewer/ViewModels/MenuBarViewModel.swift) | 主窗口筛选/排序/选择恢复和菜单栏搜索/展示上限；缓存重复分组结果 |
 | 展示模型 | [`NetworkPresentation.swift`](PortViewer/Models/NetworkPresentation.swift) | 将原始网络记录归组，生成中文状态、访问范围、连接结论和活动变化 |
 | 数据模型 | [`PortRecord.swift`](PortViewer/Models/PortRecord.swift) | 定义原始端口记录、查询快照、端点格式和搜索匹配规则 |
-| 查询服务 | [`LsofClient.swift`](PortViewer/Services/LsofClient.swift)、[`LsofParser.swift`](PortViewer/Services/LsofParser.swift) | 执行限时 `lsof` 查询、读取输出、解析字段并补充进程路径 |
-| 进程服务 | [`ProcessController.swift`](PortViewer/Services/ProcessController.swift) | 发送 `SIGTERM`/`SIGKILL`、检查进程是否存在并保护关键系统进程 |
+| 查询服务 | [`PortQuerying.swift`](PortViewer/Services/PortQuerying.swift)、[`LsofClient.swift`](PortViewer/Services/LsofClient.swift)、[`LsofParser.swift`](PortViewer/Services/LsofParser.swift) | single-flight 查询、强制新查询、异步 Pipe 读取、超时/取消清理、解析和进程路径补充 |
+| 进程服务 | [`ProcessControlling.swift`](PortViewer/Services/ProcessControlling.swift)、[`ProcessController.swift`](PortViewer/Services/ProcessController.swift) | 检查 PID、发送信号、稳定映射系统错误并保护关键系统进程 |
 
 ### 查询与刷新数据流
 
-1. `PortStore.start()` 触发首次查询，并启动自动刷新循环。
-2. `LsofClient` 以 actor 隔离查询入口，再通过 utility 优先级的后台任务执行 `/usr/sbin/lsof -nP -iTCP -iUDP -F0pcuLRftnPT`。
+1. `PortViewModel.start()` 触发首次查询，并持有可取消的自动刷新循环。
+2. `LsofService` 以 actor 隔离 single-flight 状态，再通过 utility 优先级任务执行 `/usr/sbin/lsof -nP -iTCP -iUDP -F0pcuLRftnPT`。
 3. `LsofParser` 解析 NUL 分隔字段，生成稳定标识的 `PortRecord`；随后使用 `proc_pidpath` 尽可能补充可执行文件路径。
-4. 查询结果以完整 `PortSnapshot` 返回，并在 `@MainActor` 的 `PortStore` 中一次性发布，避免列表逐行跳动。
-5. `ReadablePortItem` 按进程、协议、端口、状态含义、访问范围和远端端点归组，在不丢失原始记录的前提下生成易懂结论。
-6. 主窗口在内存快照上完成搜索、筛选和排序，用户每次输入字符时不会重新执行 `lsof`。
+4. 查询结果以完整 `PortSnapshot` 返回，并在 `@MainActor @Observable` 的 `PortViewModel` 中一次性应用。
+5. `MainWindowViewModel` 只在原始记录变化时重新生成 `ReadablePortItem`，再在内存快照上搜索、筛选和排序。
+6. Observation 只让读取了相应状态的 SwiftUI 视图失效；Task、Service 引用与缓存通过 `@ObservationIgnored` 排除。
 
 刷新机制的关键约束：
 
 - 主窗口可见时默认每 3 秒刷新，后台默认每 5 秒刷新，可在设置页调整。
-- 单次查询最多等待 5 秒；同一时间只允许一个查询运行。
+- 单次查询最多等待 5 秒；Process 与 Pipe 被包装为可取消异步会话，完成、超时和取消都等待子进程退出及两个 Pipe 到达 EOF。
+- 普通查询复用正在执行的 single-flight；危险操作的 `.fresh` 查询会等待当前查询释放资源后再启动，不会并行运行第二个 `lsof`。
 - 自动刷新不会堆积；查询期间收到的手动刷新会合并为下一次查询。
+- 单个等待者取消不会取消共享查询；应用退出会由全局 ViewModel 明确取消当前查询。
 - 完整查询失败时保留上一份快照和最后成功时间；部分结果会明确标记，不会被当作完整结果用于危险操作。
 - 每次快照会与上次结果比较，短暂展示监听端口中新出现、结束或变化的连接活动。
 
@@ -172,19 +178,19 @@ flowchart LR
 sequenceDiagram
     actor User as 用户
     participant View as 详情界面
-    participant Store as PortStore
-    participant Query as LsofClient
-    participant Process as ProcessController
+    participant Store as PortViewModel
+    participant Query as LsofService
+    participant Process as ProcessService
 
     User->>View: 选择“结束进程”
     View->>Store: prepareToTerminate(当前记录)
-    Store->>Query: 重新查询实时快照
+    Store->>Query: query(policy: .fresh)
     Query-->>Store: 最新 PortSnapshot
     Store->>Store: 校验用户、PID、端口与共同占用者
     Store-->>View: 展示影响和确认信息
     User->>Store: 确认结束
     Store->>Process: 发送 SIGTERM
-    Store->>Query: 等待后重新查询
+    Store->>Query: 等待后 query(policy: .fresh)
     Query-->>Store: 验证后的快照
     alt 原进程不再占用
         Store-->>View: 显示已释放或被其他进程重新占用
@@ -206,11 +212,15 @@ port-viewer/
 │   │   ├── PortRecord.swift        # 原始端口模型与搜索
 │   │   └── NetworkPresentation.swift # 易懂化模型与连接变化
 │   ├── Services/
-│   │   ├── LsofClient.swift        # 查询执行、超时和进程元数据
+│   │   ├── PortQuerying.swift      # 查询协议与复用/强制新查询策略
+│   │   ├── LsofClient.swift        # LsofService、single-flight 与异步进程桥接
 │   │   ├── LsofParser.swift        # lsof 机器输出解析
-│   │   └── ProcessController.swift # 信号发送与关键进程保护
+│   │   ├── ProcessControlling.swift # 进程控制协议
+│   │   └── ProcessController.swift # ProcessService 与关键进程保护
 │   ├── ViewModels/
-│   │   └── PortStore.swift         # 全局状态与业务流程
+│   │   ├── PortViewModel.swift     # 全局快照、刷新和安全业务流程
+│   │   ├── MainWindowViewModel.swift # 主窗口筛选、排序和选择
+│   │   └── MenuBarViewModel.swift  # 菜单栏搜索和展示状态
 │   ├── Views/
 │   │   ├── MainWindowView.swift    # 主窗口与连接关系详情
 │   │   ├── MenuBarPanel.swift      # 菜单栏面板
@@ -240,7 +250,10 @@ xcodebuild \
 | [`LsofParserTests.swift`](PortViewerTests/LsofParserTests.swift) | 进程/文件字段、IPv4/IPv6 端点和异常字段解析 |
 | [`PortSearchTests.swift`](PortViewerTests/PortSearchTests.swift) | 端口、PID、进程名搜索和精确匹配排序 |
 | [`NetworkPresentationTests.swift`](PortViewerTests/NetworkPresentationTests.swift) | 中文状态、访问范围、记录归组、连接活动变化和数据表述边界 |
-| [`LsofClientIntegrationTests.swift`](PortViewerTests/LsofClientIntegrationTests.swift) | 在真实 macOS 环境中执行 `lsof` 并校验快照 |
+| [`PortViewModelTests.swift`](PortViewerTests/PortViewModelTests.swift) | 刷新状态、请求合并、活动变化和结束进程安全链路 |
+| [`PageViewModelTests.swift`](PortViewerTests/PageViewModelTests.swift) | 搜索筛选排序、选择恢复/替代占用者和菜单栏独立状态 |
+| [`LsofServiceTests.swift`](PortViewerTests/LsofServiceTests.swift) | single-flight、强制新查询、等待者取消、输出语义、超时与资源清理 |
+| [`LsofClientIntegrationTests.swift`](PortViewerTests/LsofClientIntegrationTests.swift) | 使用 `LsofService` 在真实 macOS 环境执行 `lsof` 并校验快照 |
 
 GitHub Actions 会在推送或向 `main` 分支提交 Pull Request 时，使用 Xcode 16.4 执行 clean、build 和 analyze。工作流定义见 [`xcode-build-analyze.yml`](.github/workflows/xcode-build-analyze.yml)。
 
@@ -248,13 +261,15 @@ GitHub Actions 会在推送或向 `main` 分支提交 Pull Request 时，使用 
 
 - **新增 `lsof` 字段**：依次更新 `LsofParser`、`PortRecord`、需要的展示模型，并在 `LsofParserTests` 增加输入样本。
 - **新增状态或易懂文案**：集中修改 `NetworkPresentation.swift`，同时补充 `NetworkPresentationTests`，避免技术状态与用户结论散落在视图中。
-- **新增筛选项**：优先在现有快照上实现，不要让界面输入直接触发新的系统查询。
-- **修改进程结束策略**：保持“操作前复查—确认—发送信号—操作后验证”的安全链路，并继续通过 `ProcessProtectionPolicy` 保护关键进程。
+- **新增筛选项**：优先放入 `MainWindowViewModel` 并在现有快照上实现，不要让界面输入直接触发新的系统查询。
+- **替换系统能力**：让新实现遵循 `PortQuerying` 或 `ProcessControlling`，并在应用组合根注入；ViewModel 不隐式创建生产 Service。
+- **修改进程结束策略**：保持“强制新查询—确认—发送信号—强制新查询验证”的安全链路，并继续通过 `ProcessProtectionPolicy` 保护关键进程。
 
 ## 相关文档
 
 - [产品需求文档](docs/requirements.md)
 - [易懂化与图形化改版需求](docs/beginner-friendly-visualization-prd.md)
+- [MVVM + Observation + Swift Concurrency 架构重构需求](docs/architecture-refactoring-requirements.md)
 
 ## 参与开发
 

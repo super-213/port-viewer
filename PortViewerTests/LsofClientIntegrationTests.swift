@@ -1,9 +1,9 @@
 import XCTest
 @testable import PortViewer
 
-final class LsofClientIntegrationTests: XCTestCase {
+final class LsofServiceIntegrationTests: XCTestCase {
     func testReadsARealLsofSnapshotWithinTimeout() async throws {
-        let snapshot = try await LsofClient().query()
+        let snapshot = try await LsofService().query()
 
         XCTAssertLessThan(snapshot.duration, 5.5)
         XCTAssertFalse(snapshot.records.isEmpty, "The test Mac should expose at least one TCP or UDP record")

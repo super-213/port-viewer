@@ -236,6 +236,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.portviewer.app;
 				PRODUCT_MODULE_NAME = PortViewer;
 				PRODUCT_NAME = "Port Viewer";
+				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -257,6 +258,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.portviewer.app;
 				PRODUCT_MODULE_NAME = PortViewer;
 				PRODUCT_NAME = "Port Viewer";
+				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -271,6 +273,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.portviewer.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Port Viewer.app/Contents/MacOS/Port Viewer";
 			};
@@ -285,6 +288,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.portviewer.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Port Viewer.app/Contents/MacOS/Port Viewer";
 			};
