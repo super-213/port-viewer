@@ -41,25 +41,26 @@ struct MainWindowView: View {
                 )
                 Divider()
 
-                tableOrState
-                    .frame(minHeight: 230)
+                VSplitView {
+                    tableOrState
+                        .frame(minHeight: 180, idealHeight: 300)
 
-                Divider()
-                RecordDetailView(
-                    item: viewModel.selectedItem,
-                    hasEnded: viewModel.selectionHasEnded,
-                    replacement: viewModel.replacementItem,
-                    allItems: viewModel.allItems,
-                    allRecords: portViewModel.records,
-                    queryDuration: portViewModel.lastQueryDuration,
-                    lastSuccessfulUpdate: portViewModel.lastSuccessfulUpdate,
-                    technicalDetailsExpanded: $technicalDetailsExpanded,
-                    portViewModel: portViewModel,
-                    onSelectItem: viewModel.select,
-                    onDismissEnded: viewModel.clearSelection
-                )
-                .frame(minHeight: 300, idealHeight: 360, maxHeight: 500)
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: viewModel.selectedItem?.id)
+                    RecordDetailView(
+                        item: viewModel.selectedItem,
+                        hasEnded: viewModel.selectionHasEnded,
+                        replacement: viewModel.replacementItem,
+                        allItems: viewModel.allItems,
+                        allRecords: portViewModel.records,
+                        queryDuration: portViewModel.lastQueryDuration,
+                        lastSuccessfulUpdate: portViewModel.lastSuccessfulUpdate,
+                        technicalDetailsExpanded: $technicalDetailsExpanded,
+                        portViewModel: portViewModel,
+                        onSelectItem: viewModel.select,
+                        onDismissEnded: viewModel.clearSelection
+                    )
+                    .frame(minHeight: 220, idealHeight: 360)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: viewModel.selectedItem?.id)
+                }
             }
             .background(Color(nsColor: .windowBackgroundColor))
         }

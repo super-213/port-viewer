@@ -251,7 +251,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.portviewer.app;
 				PRODUCT_MODULE_NAME = PortViewer;
 				PRODUCT_NAME = "Port Viewer";
@@ -276,7 +276,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 0.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.portviewer.app;
 				PRODUCT_MODULE_NAME = PortViewer;
 				PRODUCT_NAME = "Port Viewer";
