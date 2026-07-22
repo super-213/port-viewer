@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("menuBarShowsCount") private var menuBarShowsCount = true
     @AppStorage("foregroundRefreshInterval") private var foregroundRefreshInterval = 3.0
-    @AppStorage("backgroundRefreshInterval") private var backgroundRefreshInterval = 5.0
+    @AppStorage("backgroundRefreshInterval") private var backgroundRefreshInterval = 30.0
 
     var body: some View {
         Form {
@@ -13,11 +13,20 @@ struct SettingsView: View {
 
             Section("自动刷新") {
                 Picker("主窗口可见时", selection: $foregroundRefreshInterval) {
-                    intervalOptions
+                    Text("3 秒").tag(3.0)
+                    Text("5 秒").tag(5.0)
+                    Text("10 秒").tag(10.0)
+                    Text("30 秒").tag(30.0)
                 }
-                Picker("仅菜单栏运行时", selection: $backgroundRefreshInterval) {
-                    intervalOptions
+                Picker("窗口和菜单均收起时", selection: $backgroundRefreshInterval) {
+                    Text("仅按需刷新").tag(0.0)
+                    Text("10 秒").tag(10.0)
+                    Text("30 秒").tag(30.0)
+                    Text("60 秒").tag(60.0)
                 }
+                Text("展开菜单栏面板时会立即刷新，并临时使用 5 秒间隔。暂停后不会保留后台定时唤醒。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("隐私与权限") {
@@ -28,14 +37,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480, height: 330)
+        .frame(width: 480, height: 380)
     }
 
-    @ViewBuilder
-    private var intervalOptions: some View {
-        Text("1 秒").tag(1.0)
-        Text("3 秒").tag(3.0)
-        Text("5 秒").tag(5.0)
-        Text("10 秒").tag(10.0)
-    }
 }

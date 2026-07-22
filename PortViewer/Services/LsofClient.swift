@@ -41,15 +41,10 @@ struct LsofProcessRunner: LsofRunning {
 }
 
 /// Owns one Foundation `Process` and translates its callback-based lifecycle into
-/// a cancellable async operation. Pipe callbacks continuously drain output so the
-/// child cannot block on a full pipe; completion is published only after the
-/// process has exited and both pipes reached EOF.
+/// a cancellable async operation. The output callback continuously drains its pipe
+/// so the child cannot block; stderr is intentionally discarded because the public
+/// error model only exposes stable exit-status messages.
 private actor LsofProcessSession {
-    private enum Stream {
-        case standardOutput
-        case standardError
-    }
-
     private enum StopReason {
         case timedOut
         case cancelled
@@ -62,11 +57,8 @@ private actor LsofProcessSession {
 
     private let process = Process()
     private let standardOutput = Pipe()
-    private let standardError = Pipe()
     private var output = Data()
-    private var errorOutput = Data()
     private var outputReachedEOF = false
-    private var errorReachedEOF = false
     private var terminationStatus: Int32?
     private var stopReason: StopReason?
     private var completion: Completion?
@@ -78,7 +70,7 @@ private actor LsofProcessSession {
         process.executableURL = executableURL
         process.arguments = ["-nP", "-iTCP", "-iUDP", "-F0pcuLRftnPT"]
         process.standardOutput = standardOutput
-        process.standardError = standardError
+        process.standardError = FileHandle.nullDevice
     }
 
     func run(timeout: Duration) async throws -> LsofProcessResult {
@@ -121,11 +113,7 @@ private actor LsofProcessSession {
     private func installHandlers() {
         standardOutput.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            Task { await self?.receive(data, from: .standardOutput) }
-        }
-        standardError.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            Task { await self?.receive(data, from: .standardError) }
+            Task { await self?.receive(data) }
         }
         process.terminationHandler = { [weak self] process in
             let status = process.terminationStatus
@@ -133,23 +121,12 @@ private actor LsofProcessSession {
         }
     }
 
-    private func receive(_ data: Data, from stream: Stream) {
+    private func receive(_ data: Data) {
         if data.isEmpty {
-            switch stream {
-            case .standardOutput:
-                outputReachedEOF = true
-                standardOutput.fileHandleForReading.readabilityHandler = nil
-            case .standardError:
-                errorReachedEOF = true
-                standardError.fileHandleForReading.readabilityHandler = nil
-            }
+            outputReachedEOF = true
+            standardOutput.fileHandleForReading.readabilityHandler = nil
         } else {
-            switch stream {
-            case .standardOutput:
-                output.append(data)
-            case .standardError:
-                errorOutput.append(data)
-            }
+            output.append(data)
         }
         finishIfPossible()
     }
@@ -193,14 +170,12 @@ private actor LsofProcessSession {
     private func finishIfPossible() {
         guard completion == nil,
               let terminationStatus,
-              outputReachedEOF,
-              errorReachedEOF else { return }
+              outputReachedEOF else { return }
 
         timeoutTask?.cancel()
         forceKillTask?.cancel()
         tearDownHandlers()
         closePipes()
-        _ = errorOutput // Drain stderr without exposing potentially sensitive details.
 
         let value = Completion(
             result: LsofProcessResult(output: output, status: terminationStatus),
@@ -213,15 +188,12 @@ private actor LsofProcessSession {
 
     private func tearDownHandlers() {
         standardOutput.fileHandleForReading.readabilityHandler = nil
-        standardError.fileHandleForReading.readabilityHandler = nil
         process.terminationHandler = nil
     }
 
     private func closePipes() {
         try? standardOutput.fileHandleForReading.close()
         try? standardOutput.fileHandleForWriting.close()
-        try? standardError.fileHandleForReading.close()
-        try? standardError.fileHandleForWriting.close()
     }
 }
 
@@ -235,6 +207,7 @@ actor LsofService: PortQuerying {
     private let executableURL: URL
     private let timeout: Duration
     private let runner: any LsofRunning
+    private let metadataCache: ProcessMetadataCache
     private var nextQueryID: UInt64 = 0
     private var inFlight: InFlightQuery?
 
@@ -242,12 +215,14 @@ actor LsofService: PortQuerying {
         parser: LsofParser = LsofParser(),
         executableURL: URL = URL(fileURLWithPath: "/usr/sbin/lsof"),
         timeout: Duration = .seconds(5),
-        runner: any LsofRunning = LsofProcessRunner()
+        runner: any LsofRunning = LsofProcessRunner(),
+        metadataCache: ProcessMetadataCache = ProcessMetadataCache()
     ) {
         self.parser = parser
         self.executableURL = executableURL
         self.timeout = timeout
         self.runner = runner
+        self.metadataCache = metadataCache
     }
 
     func query(policy: PortQueryPolicy = .reuseInFlight) async throws -> PortSnapshot {
@@ -264,7 +239,7 @@ actor LsofService: PortQuerying {
             try Task.checkCancellation()
         }
 
-        let query = makeQuery()
+        let query = makeQuery(forceMetadataRefresh: policy == .fresh)
         inFlight = query
         return try await result(of: query)
     }
@@ -275,13 +250,14 @@ actor LsofService: PortQuerying {
         _ = try? await result(of: current)
     }
 
-    private func makeQuery() -> InFlightQuery {
+    private func makeQuery(forceMetadataRefresh: Bool) -> InFlightQuery {
         nextQueryID &+= 1
         let id = nextQueryID
         let parser = parser
         let executableURL = executableURL
         let timeout = timeout
         let runner = runner
+        let metadataCache = metadataCache
 
         let task = Task.detached(priority: .utility) {
             try Task.checkCancellation()
@@ -310,12 +286,11 @@ actor LsofService: PortQuerying {
                 throw LsofQueryError.unparseableOutput
             }
 
-            let paths = Dictionary(
-                uniqueKeysWithValues: Set(records.map(\.pid)).map { pid in
-                    (pid, ProcessMetadataResolver.executablePath(for: pid))
-                }
+            let paths = await metadataCache.executablePaths(
+                for: records,
+                forceRefresh: forceMetadataRefresh
             )
-            let enrichedRecords = records.map { $0.withExecutablePath(paths[$0.pid] ?? nil) }
+            let enrichedRecords = records.map { $0.withExecutablePath(paths[$0.pid]) }
 
             return PortSnapshot(
                 records: enrichedRecords,
@@ -341,6 +316,60 @@ actor LsofService: PortQuerying {
     private func clearIfCurrent(_ id: UInt64) {
         guard inFlight?.id == id else { return }
         inFlight = nil
+    }
+}
+
+actor ProcessMetadataCache {
+    private struct ProcessIdentity: Hashable {
+        let pid: Int32
+        let command: String
+    }
+
+    private struct Entry {
+        let path: String?
+        let resolvedAt: Date
+    }
+
+    private let timeToLive: TimeInterval
+    private var entries: [ProcessIdentity: Entry] = [:]
+
+    init(timeToLive: TimeInterval = 30) {
+        self.timeToLive = timeToLive
+    }
+
+    func executablePaths(
+        for records: [PortRecord],
+        forceRefresh: Bool,
+        now: Date = Date()
+    ) -> [Int32: String] {
+        var commandsByPID: [Int32: String] = [:]
+        for record in records {
+            commandsByPID[record.pid] = record.processName
+        }
+
+        let activeIdentities = Set(commandsByPID.map {
+            ProcessIdentity(pid: $0.key, command: $0.value)
+        })
+        entries = entries.filter { activeIdentities.contains($0.key) }
+
+        var result: [Int32: String] = [:]
+        result.reserveCapacity(commandsByPID.count)
+        for (pid, command) in commandsByPID {
+            let identity = ProcessIdentity(pid: pid, command: command)
+            let path: String?
+            if !forceRefresh,
+               let cached = entries[identity],
+               now.timeIntervalSince(cached.resolvedAt) < timeToLive {
+                path = cached.path
+            } else {
+                path = ProcessMetadataResolver.executablePath(for: pid)
+                entries[identity] = Entry(path: path, resolvedAt: now)
+            }
+            if let path {
+                result[pid] = path
+            }
+        }
+        return result
     }
 }
 

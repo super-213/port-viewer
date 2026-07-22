@@ -91,7 +91,6 @@ final class PortViewModel {
     var feedback: OperationFeedback?
 
     private enum RefreshReason {
-        case initial
         case automatic
         case manual
     }
@@ -104,7 +103,9 @@ final class PortViewModel {
     @ObservationIgnored private var activityFeedbackCleanupTask: Task<Void, Never>?
     @ObservationIgnored private var queryCancellationTask: Task<Void, Never>?
     @ObservationIgnored private var queuedRefresh = false
-    @ObservationIgnored private var isMainWindowVisible = true
+    @ObservationIgnored private var isRunning = false
+    @ObservationIgnored private var isMainWindowVisible = false
+    @ObservationIgnored private var isMenuBarPanelVisible = false
     @ObservationIgnored private var didRequestInitialWindow = false
     @ObservationIgnored private var listenerActivitySnapshot = PortActivitySnapshot(
         connectionIDsByListener: [:],
@@ -129,11 +130,9 @@ final class PortViewModel {
         queryCancellationTask?.cancel()
     }
 
-    var listeningCount: Int { records.lazy.filter(\.isListening).count }
-    var activeConnectionCount: Int { records.lazy.filter(\.isActiveConnection).count }
-    var otherNetworkActivityCount: Int {
-        records.lazy.filter { !$0.isListening && !$0.isActiveConnection }.count
-    }
+    private(set) var listeningCount = 0
+    private(set) var activeConnectionCount = 0
+    private(set) var otherNetworkActivityCount = 0
 
     var statusSymbolName: String {
         if isPaused { return "pause.circle" }
@@ -144,25 +143,14 @@ final class PortViewModel {
     }
 
     func start() {
-        guard refreshLoop == nil else { return }
-        refreshLoop = Task { [weak self] in
-            guard let self else { return }
-            await refresh(reason: .initial)
-
-            while !Task.isCancelled {
-                let interval = currentRefreshInterval
-                do {
-                    try await Task.sleep(for: .seconds(interval))
-                } catch {
-                    return
-                }
-                guard !Task.isCancelled, !isPaused else { continue }
-                await refresh(reason: .automatic)
-            }
-        }
+        guard !isRunning else { return }
+        isRunning = true
+        refreshIfStale(maximumAge: 1)
+        restartRefreshLoop()
     }
 
     func stop() {
+        isRunning = false
         refreshLoop?.cancel()
         refreshLoop = nil
         manualRefreshTask?.cancel()
@@ -186,7 +174,21 @@ final class PortViewModel {
     }
 
     func setMainWindowVisible(_ visible: Bool) {
+        guard isMainWindowVisible != visible else { return }
         isMainWindowVisible = visible
+        restartRefreshLoop()
+        if visible {
+            refreshIfStale(maximumAge: 1)
+        }
+    }
+
+    func setMenuBarPanelVisible(_ visible: Bool) {
+        guard isMenuBarPanelVisible != visible else { return }
+        isMenuBarPanelVisible = visible
+        restartRefreshLoop()
+        if visible {
+            refreshIfStale(maximumAge: 1)
+        }
     }
 
     func refreshNow() {
@@ -204,9 +206,12 @@ final class PortViewModel {
     func togglePause() {
         isPaused.toggle()
         if isPaused {
+            refreshLoop?.cancel()
+            refreshLoop = nil
             state = .paused
         } else {
             state = records.isEmpty ? .empty : .ready
+            restartRefreshLoop()
             refreshNow()
         }
     }
@@ -248,6 +253,10 @@ final class PortViewModel {
 
     func waitForTerminationTaskForTesting() async {
         await terminationTask?.value
+    }
+
+    var hasScheduledAutomaticRefreshForTesting: Bool {
+        refreshLoop != nil
     }
     #endif
 
@@ -354,11 +363,54 @@ final class PortViewModel {
         }
     }
 
-    private var currentRefreshInterval: TimeInterval {
-        let key = isMainWindowVisible ? "foregroundRefreshInterval" : "backgroundRefreshInterval"
-        let stored = UserDefaults.standard.double(forKey: key)
-        if stored > 0 { return stored }
-        return isMainWindowVisible ? 3 : 5
+    private var currentRefreshInterval: TimeInterval? {
+        if isMainWindowVisible {
+            return max(3, storedInterval(forKey: "foregroundRefreshInterval", defaultValue: 3))
+        }
+        if isMenuBarPanelVisible {
+            return 5
+        }
+
+        let interval = storedInterval(forKey: "backgroundRefreshInterval", defaultValue: 30)
+        return interval <= 0 ? nil : max(10, interval)
+    }
+
+    private func storedInterval(forKey key: String, defaultValue: TimeInterval) -> TimeInterval {
+        guard let value = UserDefaults.standard.object(forKey: key) as? NSNumber else {
+            return defaultValue
+        }
+        return value.doubleValue
+    }
+
+    private func restartRefreshLoop() {
+        refreshLoop?.cancel()
+        refreshLoop = nil
+
+        guard isRunning, !isPaused, currentRefreshInterval != nil else { return }
+        refreshLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let interval = self?.currentRefreshInterval else { return }
+                let tolerance: Duration = interval >= 30
+                    ? .seconds(3)
+                    : interval >= 10 ? .seconds(1) : .milliseconds(300)
+                do {
+                    try await Task.sleep(for: .seconds(interval), tolerance: tolerance)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, let owner = self, !owner.isPaused else { return }
+                await owner.refresh(reason: .automatic)
+            }
+        }
+    }
+
+    private func refreshIfStale(maximumAge: TimeInterval) {
+        guard !isRefreshing, manualRefreshTask == nil else { return }
+        if let lastSuccessfulUpdate,
+           Date().timeIntervalSince(lastSuccessfulUpdate) <= maximumAge {
+            return
+        }
+        refreshNow()
     }
 
     private func refresh(reason: RefreshReason) async {
@@ -392,7 +444,24 @@ final class PortViewModel {
 
     private func apply(_ snapshot: PortSnapshot) {
         updateListenerActivity(with: snapshot)
-        records = snapshot.records
+        if !records.elementsEqual(snapshot.records, by: { $0.hasSameSnapshotContent(as: $1) }) {
+            records = snapshot.records
+            var nextListeningCount = 0
+            var nextActiveConnectionCount = 0
+            var nextOtherNetworkActivityCount = 0
+            for record in snapshot.records {
+                if record.isListening {
+                    nextListeningCount += 1
+                } else if record.isActiveConnection {
+                    nextActiveConnectionCount += 1
+                } else {
+                    nextOtherNetworkActivityCount += 1
+                }
+            }
+            listeningCount = nextListeningCount
+            activeConnectionCount = nextActiveConnectionCount
+            otherNetworkActivityCount = nextOtherNetworkActivityCount
+        }
         lastQueryDuration = snapshot.duration
         if !snapshot.isPartial {
             lastSuccessfulUpdate = snapshot.capturedAt
@@ -462,6 +531,22 @@ final class PortViewModel {
 }
 
 private extension PortRecord {
+    func hasSameSnapshotContent(as other: PortRecord) -> Bool {
+        processName == other.processName
+            && pid == other.pid
+            && user == other.user
+            && fileDescriptor == other.fileDescriptor
+            && ipVersion == other.ipVersion
+            && transport == other.transport
+            && localAddress == other.localAddress
+            && localPort == other.localPort
+            && remoteAddress == other.remoteAddress
+            && remotePort == other.remotePort
+            && state == other.state
+            && executablePath == other.executablePath
+            && parentPID == other.parentPID
+    }
+
     func matchesTarget(_ other: PortRecord) -> Bool {
         pid == other.pid
             && processName == other.processName

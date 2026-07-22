@@ -52,6 +52,7 @@ struct MainWindowView: View {
                     allItems: viewModel.allItems,
                     allRecords: portViewModel.records,
                     queryDuration: portViewModel.lastQueryDuration,
+                    lastSuccessfulUpdate: portViewModel.lastSuccessfulUpdate,
                     technicalDetailsExpanded: $technicalDetailsExpanded,
                     portViewModel: portViewModel,
                     onSelectItem: viewModel.select,
@@ -472,6 +473,28 @@ private struct PortTable: View {
     }
 }
 
+@MainActor
+private final class ProcessIconCache {
+    static let shared = ProcessIconCache()
+
+    private let images = NSCache<NSString, NSImage>()
+
+    private init() {
+        images.countLimit = 256
+    }
+
+    func icon(forExecutablePath path: String) -> NSImage? {
+        let key = path as NSString
+        if let image = images.object(forKey: key) {
+            return image
+        }
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        let image = NSWorkspace.shared.icon(forFile: path)
+        images.setObject(image, forKey: key)
+        return image
+    }
+}
+
 struct ProcessIconView: View {
     let record: PortRecord
     let size: CGFloat
@@ -479,8 +502,8 @@ struct ProcessIconView: View {
     var body: some View {
         Group {
             if let path = record.executablePath,
-               FileManager.default.fileExists(atPath: path) {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: path))
+               let icon = ProcessIconCache.shared.icon(forExecutablePath: path) {
+                Image(nsImage: icon)
                     .resizable()
             } else {
                 Image(systemName: "terminal")
@@ -605,6 +628,7 @@ private struct RecordDetailView: View {
     let allItems: [ReadablePortItem]
     let allRecords: [PortRecord]
     let queryDuration: TimeInterval?
+    let lastSuccessfulUpdate: Date?
     @Binding var technicalDetailsExpanded: Bool
     let portViewModel: PortViewModel
     let onSelectItem: (ReadablePortItem) -> Void
@@ -637,6 +661,7 @@ private struct RecordDetailView: View {
                             allItems: allItems,
                             allRecords: allRecords,
                             queryDuration: queryDuration,
+                            lastSuccessfulUpdate: lastSuccessfulUpdate,
                             isExpanded: $technicalDetailsExpanded,
                             onSelectItem: onSelectItem
                         )
@@ -1041,6 +1066,7 @@ private struct TechnicalDetailsView: View {
     let allItems: [ReadablePortItem]
     let allRecords: [PortRecord]
     let queryDuration: TimeInterval?
+    let lastSuccessfulUpdate: Date?
     @Binding var isExpanded: Bool
     let onSelectItem: (ReadablePortItem) -> Void
 
@@ -1092,7 +1118,12 @@ private struct TechnicalDetailsView: View {
     private var systemFields: [TechnicalField] {
         [
             .init(title: "系统连接编号", value: record.fileDescriptor, explanation: "进程内部标识这条网络资源的编号"),
-            .init(title: "数据更新时间", value: record.updatedAt.formatted(date: .abbreviated, time: .standard), explanation: "应用上次确认这条记录存在的精确时间", monospaced: false),
+            .init(
+                title: "数据更新时间",
+                value: (lastSuccessfulUpdate ?? record.updatedAt).formatted(date: .abbreviated, time: .standard),
+                explanation: "应用上次通过完整查询确认这条记录存在的精确时间",
+                monospaced: false
+            ),
             .init(title: "底层记录数量", value: String(item.rawRecords.count), explanation: "当前易读项目包含的原始系统记录数量"),
             .init(title: "本次查询耗时", value: queryDuration.map { String(format: "%.0f ms", $0 * 1_000) } ?? "无法获取", explanation: "系统工具完成最近一次查询所用时间")
         ]

@@ -56,6 +56,57 @@ final class PortViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isRefreshing)
     }
 
+    func testEquivalentSnapshotOnlyAdvancesTimestampAndKeepsStableRecords() async {
+        let original = PortTestFixtures.record(updatedAt: Date(timeIntervalSince1970: 100))
+        let equivalent = PortTestFixtures.record(updatedAt: Date(timeIntervalSince1970: 200))
+        let query = StubPortQueryService(responses: [
+            .snapshot(PortTestFixtures.snapshot(
+                records: [original],
+                capturedAt: Date(timeIntervalSince1970: 100)
+            )),
+            .snapshot(PortTestFixtures.snapshot(
+                records: [equivalent],
+                capturedAt: Date(timeIntervalSince1970: 200)
+            ))
+        ])
+        let viewModel = PortTestFixtures.viewModel(queryService: query)
+
+        await viewModel.refreshForTesting()
+        await viewModel.refreshForTesting()
+
+        XCTAssertEqual(viewModel.records.first?.updatedAt, original.updatedAt)
+        XCTAssertEqual(viewModel.lastSuccessfulUpdate, Date(timeIntervalSince1970: 200))
+        XCTAssertEqual(viewModel.listeningCount, 1)
+        XCTAssertEqual(viewModel.activeConnectionCount, 0)
+        XCTAssertEqual(viewModel.otherNetworkActivityCount, 0)
+    }
+
+    func testPauseRemovesAutomaticTimerAndResumeRestoresIt() async {
+        let now = Date()
+        let snapshot = PortTestFixtures.snapshot(
+            records: [PortTestFixtures.record(updatedAt: now)],
+            capturedAt: now
+        )
+        let query = StubPortQueryService(responses: [
+            .snapshot(snapshot),
+            .snapshot(snapshot)
+        ])
+        let viewModel = PortTestFixtures.viewModel(queryService: query)
+
+        viewModel.setMainWindowVisible(true)
+        viewModel.start()
+        await viewModel.waitForManualRefreshForTesting()
+        XCTAssertTrue(viewModel.hasScheduledAutomaticRefreshForTesting)
+
+        viewModel.togglePause()
+        XCTAssertFalse(viewModel.hasScheduledAutomaticRefreshForTesting)
+
+        viewModel.togglePause()
+        await viewModel.waitForManualRefreshForTesting()
+        XCTAssertTrue(viewModel.hasScheduledAutomaticRefreshForTesting)
+        viewModel.stop()
+    }
+
     func testPauseAndResumePreserveStateAndResumeWithRefresh() async {
         let query = StubPortQueryService(responses: [
             .snapshot(PortTestFixtures.snapshot(records: [PortTestFixtures.record()]))

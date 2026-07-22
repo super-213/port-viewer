@@ -116,22 +116,23 @@ final class MainWindowViewModel {
             if scope != .connections {
                 connectionPhaseFilter = .all
             }
+            invalidateDisplayedItems()
         }
     }
-    var searchText = ""
-    var accessFilter: AccessFilter = .all
-    var ownerFilter: OwnerFilter = .all
-    var connectionPhaseFilter: ConnectionPhaseFilter = .all
-    var protocolFilter: ProtocolFilter = .all
-    var ipFilter: IPFilter = .all
-    var stateFilter = ""
+    var searchText = "" { didSet { invalidateDisplayedItems() } }
+    var accessFilter: AccessFilter = .all { didSet { invalidateDisplayedItems() } }
+    var ownerFilter: OwnerFilter = .all { didSet { invalidateDisplayedItems() } }
+    var connectionPhaseFilter: ConnectionPhaseFilter = .all { didSet { invalidateDisplayedItems() } }
+    var protocolFilter: ProtocolFilter = .all { didSet { invalidateDisplayedItems() } }
+    var ipFilter: IPFilter = .all { didSet { invalidateDisplayedItems() } }
+    var stateFilter = "" { didSet { invalidateDisplayedItems() } }
     var selectedID: ReadablePortItem.ID? {
         didSet { selectionDidChange() }
     }
     var sortOrder: [ReadablePortSortComparator] = [
         ReadablePortSortComparator(field: .localPort),
         ReadablePortSortComparator(field: .process)
-    ]
+    ] { didSet { invalidateDisplayedItems() } }
 
     @ObservationIgnored private let portViewModel: PortViewModel
     @ObservationIgnored private var lastSelectedItem: ReadablePortItem?
@@ -139,6 +140,9 @@ final class MainWindowViewModel {
     @ObservationIgnored private var expirationTask: Task<Void, Never>?
     @ObservationIgnored private var cachedRecords: [PortRecord] = []
     @ObservationIgnored private var cachedItems: [ReadablePortItem] = []
+    @ObservationIgnored private var cachedDisplayedItems: [ReadablePortItem]?
+    @ObservationIgnored private var cachedStateOptions: [String] = []
+    @ObservationIgnored private var cachedScopeCounts: [SidebarScope: Int] = [:]
 
     init(portViewModel: PortViewModel) {
         self.portViewModel = portViewModel
@@ -153,6 +157,21 @@ final class MainWindowViewModel {
         if records != cachedRecords {
             cachedRecords = records
             cachedItems = ReadablePortItem.group(records)
+            cachedDisplayedItems = nil
+            cachedStateOptions = Array(Set(records.compactMap(\.normalizedState))).sorted()
+
+            var counts = Dictionary(uniqueKeysWithValues: SidebarScope.allCases.map { ($0, 0) })
+            counts[.all] = records.count
+            for record in records {
+                if record.isListening {
+                    counts[.waiting, default: 0] += 1
+                } else if record.isActiveConnection {
+                    counts[.connections, default: 0] += 1
+                } else {
+                    counts[.other, default: 0] += 1
+                }
+            }
+            cachedScopeCounts = counts
         }
         return cachedItems
     }
@@ -182,7 +201,10 @@ final class MainWindowViewModel {
     }
 
     var displayedItems: [ReadablePortItem] {
-        var filtered = allItems
+        let items = allItems
+        if let cachedDisplayedItems { return cachedDisplayedItems }
+
+        var filtered = items
             .filter(matchesScope)
             .filter(matchesAccess)
             .filter(matchesOwner)
@@ -194,17 +216,23 @@ final class MainWindowViewModel {
 
         filtered.sort(using: sortOrder)
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return filtered }
+        guard !query.isEmpty else {
+            cachedDisplayedItems = filtered
+            return filtered
+        }
 
-        return filtered.enumerated().sorted { left, right in
+        let ranked = filtered.enumerated().sorted { left, right in
             let leftRank = searchRank(for: left.element, query: query)
             let rightRank = searchRank(for: right.element, query: query)
             return leftRank == rightRank ? left.offset < right.offset : leftRank < rightRank
         }.map(\.element)
+        cachedDisplayedItems = ranked
+        return ranked
     }
 
     var stateOptions: [String] {
-        Array(Set(portViewModel.records.compactMap(\.normalizedState))).sorted()
+        _ = allItems
+        return cachedStateOptions
     }
 
     var hasActiveFilters: Bool {
@@ -348,14 +376,12 @@ final class MainWindowViewModel {
     }
 
     func count(for scope: SidebarScope) -> Int {
-        portViewModel.records.lazy.filter { record in
-            switch scope {
-            case .all: return true
-            case .waiting: return record.isListening
-            case .connections: return record.isActiveConnection
-            case .other: return !record.isListening && !record.isActiveConnection
-            }
-        }.count
+        _ = allItems
+        return cachedScopeCounts[scope] ?? 0
+    }
+
+    private func invalidateDisplayedItems() {
+        cachedDisplayedItems = nil
     }
 
     private func selectionDidChange() {

@@ -56,6 +56,12 @@ struct MenuBarPanel: View {
             footer
         }
         .frame(width: 380)
+        .onAppear {
+            portViewModel.setMenuBarPanelVisible(true)
+        }
+        .onDisappear {
+            portViewModel.setMenuBarPanelVisible(false)
+        }
     }
 
     private var header: some View {
