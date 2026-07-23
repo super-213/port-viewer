@@ -42,18 +42,22 @@ struct MenuBarPanel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            searchField
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-            metrics
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-            Divider()
-            recordList
-            Divider()
-            footer
+        ZStack {
+            PVPalette.canvasBase
+
+            VStack(spacing: 0) {
+                header
+                searchField
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                metrics
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                PremiumSeparator()
+                recordList
+                PremiumSeparator()
+                footer
+            }
         }
         .frame(width: 380)
         .onAppear {
@@ -71,15 +75,20 @@ struct MenuBarPanel: View {
                     .font(.headline)
                 Text(viewModel.updateDescription)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PVPalette.textTertiary)
             }
             Spacer()
             Button {
                 portViewModel.refreshNow()
             } label: {
-                Image(systemName: "arrow.clockwise")
+                if portViewModel.isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(QuietButtonStyle())
             .disabled(portViewModel.isRefreshing)
             .help("立即刷新")
             .accessibilityLabel("立即刷新端口列表")
@@ -88,37 +97,25 @@ struct MenuBarPanel: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("搜索应用名称或端口，例如 3000", text: $viewModel.searchText)
-                .textFieldStyle(.plain)
-                .accessibilityLabel("菜单栏端口搜索")
-            if !viewModel.searchText.isEmpty {
-                Button {
-                    viewModel.clearSearch()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("清除搜索")
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 30)
-        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
+        PremiumSearchField(
+            text: $viewModel.searchText,
+            prompt: "搜索应用名称或端口，例如 3000",
+            compact: true
+        )
+        .accessibilityLabel("菜单栏端口搜索")
     }
 
     private var metrics: some View {
         HStack(spacing: 0) {
-            metric(title: "等待连接", value: portViewModel.listeningCount, symbol: "dot.radiowaves.left.and.right", color: .green)
-            Divider().frame(height: 28)
-            metric(title: "连接活动", value: portViewModel.activeConnectionCount, symbol: "arrow.left.arrow.right", color: .blue)
-            Divider().frame(height: 28)
-            metric(title: "其他网络活动", value: portViewModel.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: .secondary)
+            metric(title: "等待连接", value: portViewModel.listeningCount, symbol: "dot.radiowaves.left.and.right", color: PVPalette.waiting)
+            railSeparator
+            metric(title: "连接活动", value: portViewModel.activeConnectionCount, symbol: "arrow.left.arrow.right", color: PVPalette.connected)
+            railSeparator
+            metric(title: "其他网络活动", value: portViewModel.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: PVPalette.neutral)
         }
         .frame(maxWidth: .infinity)
+        .frame(minHeight: 52)
+        .premiumControlSurface(radius: PVRadius.node)
     }
 
     private func metric(title: String, value: Int, symbol: String, color: Color) -> some View {
@@ -127,7 +124,7 @@ struct MenuBarPanel: View {
                 .foregroundStyle(color)
             VStack(alignment: .leading, spacing: 0) {
                 Text(String(value)).font(.headline).monospacedDigit()
-                Text(title).font(.caption).foregroundStyle(.secondary)
+                Text(title).font(.caption).foregroundStyle(PVPalette.textSecondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -135,18 +132,30 @@ struct MenuBarPanel: View {
         .accessibilityLabel("\(title) \(value) 个")
     }
 
+    private var railSeparator: some View {
+        Rectangle()
+            .fill(PVPalette.edgeSeparator)
+            .frame(width: 1, height: 28)
+            .accessibilityHidden(true)
+    }
+
     @ViewBuilder
     private var recordList: some View {
         if viewModel.displayedRecords.isEmpty {
             VStack(spacing: 8) {
-                Image(systemName: viewModel.searchText.isEmpty ? "checkmark.circle" : "magnifyingglass")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
+                ZStack {
+                    Circle()
+                        .fill(PVPalette.surfaceControl)
+                        .frame(width: 42, height: 42)
+                    Image(systemName: viewModel.searchText.isEmpty ? "checkmark.circle" : "magnifyingglass")
+                        .font(.title3)
+                        .foregroundStyle(PVPalette.neutral)
+                }
                 Text(viewModel.searchText.isEmpty ? "当前没有应用在等待连接" : "没有匹配的等待连接活动")
                     .font(.callout)
                 if !viewModel.searchText.isEmpty {
                     Button("清除搜索") { viewModel.clearSearch() }
-                        .buttonStyle(.link)
+                        .buttonStyle(GlassButtonStyle(height: 28))
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 128)
@@ -154,27 +163,9 @@ struct MenuBarPanel: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(viewModel.displayedRecords) { record in
-                        Button {
+                        MenuBarRecordButton(record: record) {
                             openMainWindow(selecting: record)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text(":\(record.localPortText)")
-                                    .font(.system(.body, design: .monospaced, weight: .medium))
-                                    .frame(width: 72, alignment: .leading)
-                                ProcessIconView(record: record, size: 18)
-                                Text(record.processName)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text("等待连接")
-                                    .font(.caption)
-                                    .foregroundStyle(.green)
-                            }
-                            .contentShape(Rectangle())
-                            .padding(.horizontal, 16)
-                            .frame(height: 34)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("端口 \(record.localPortText)，\(record.processName)，正在等待连接")
                     }
                 }
                 .padding(.vertical, 6)
@@ -185,20 +176,26 @@ struct MenuBarPanel: View {
 
     private var footer: some View {
         HStack(spacing: 14) {
-            Button("打开主窗口") { openMainWindow(selecting: nil) }
-                .buttonStyle(.link)
+            Button {
+                openMainWindow(selecting: nil)
+            } label: {
+                Label("打开主窗口", systemImage: "macwindow")
+            }
+            .buttonStyle(GlassButtonStyle(height: 30))
             Spacer()
             SettingsLink {
-                Text("设置")
+                Label("设置", systemImage: "gearshape")
             }
-            .buttonStyle(.link)
-            Button("退出") {
+            .buttonStyle(QuietButtonStyle(size: 30, horizontalPadding: 7))
+            Button {
                 NSApplication.shared.terminate(nil)
+            } label: {
+                Label("退出", systemImage: "power")
             }
-            .buttonStyle(.link)
+            .buttonStyle(QuietButtonStyle(size: 30, horizontalPadding: 7))
         }
         .padding(.horizontal, 16)
-        .frame(height: 44)
+        .frame(height: 50)
     }
 
     private func openMainWindow(selecting record: PortRecord?) {
@@ -209,5 +206,44 @@ struct MenuBarPanel: View {
             openWindow(id: "main")
         }
         NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+}
+
+private struct MenuBarRecordButton: View {
+    let record: PortRecord
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(":\(record.localPortText)")
+                    .font(.system(.callout, design: .monospaced, weight: .semibold))
+                    .foregroundStyle(PVPalette.waiting)
+                    .frame(width: 72, alignment: .leading)
+                    .padding(.vertical, 3)
+                    .background(PVPalette.waiting.opacity(0.09), in: RoundedRectangle(cornerRadius: PVRadius.micro))
+                ProcessIconView(record: record, size: 18)
+                Text(record.processName)
+                    .foregroundStyle(PVPalette.textPrimary)
+                    .lineLimit(1)
+                Spacer()
+                Label("等待连接", systemImage: "circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(PVPalette.waiting)
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 16)
+            .frame(height: 34)
+            .background(
+                PVPalette.accentPrimary.opacity(isHovered ? 0.06 : 0),
+                in: RoundedRectangle(cornerRadius: PVRadius.small)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(PVMotion.hover) { isHovered = hovering }
+        }
+        .accessibilityLabel("端口 \(record.localPortText)，\(record.processName)，正在等待连接")
     }
 }

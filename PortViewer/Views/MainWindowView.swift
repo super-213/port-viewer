@@ -7,25 +7,32 @@ struct MainWindowView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var technicalDetailsExpanded = false
-    @FocusState private var searchIsFocused: Bool
+    @State private var searchIsFocused = false
 
     var body: some View {
         NavigationSplitView {
             sidebar
         } detail: {
-            VStack(spacing: 0) {
+            ZStack {
+                PremiumCanvas()
+
+                VStack(spacing: 0) {
                 if let issue = portViewModel.state.issueMessage {
-                    QueryBanner(message: issue, symbol: "exclamationmark.triangle.fill", color: .orange) {
+                    QueryBanner(message: issue, symbol: "exclamationmark.triangle.fill", color: PVPalette.warning) {
                         portViewModel.refreshNow()
                     }
                 } else if portViewModel.isPaused {
-                    QueryBanner(message: "自动刷新已暂停，当前数据可能已过期。", symbol: "pause.circle.fill", color: .secondary) {
+                    QueryBanner(
+                        message: "自动刷新已暂停，当前数据可能已过期。",
+                        symbol: "pause.circle.fill",
+                        color: PVPalette.neutral,
+                        actionTitle: "继续刷新"
+                    ) {
                         portViewModel.togglePause()
                     }
                 }
 
                 OverviewBar(portViewModel: portViewModel)
-                Divider()
                 FilterBar(
                     scope: $viewModel.scope,
                     accessFilter: $viewModel.accessFilter,
@@ -39,11 +46,11 @@ struct MainWindowView: View {
                     clearFilter: viewModel.clearFilter,
                     reset: viewModel.resetFilters
                 )
-                Divider()
 
                 VSplitView {
                     tableOrState
                         .frame(minHeight: 180, idealHeight: 300)
+                        .background(PVPalette.surfaceContent)
 
                     RecordDetailView(
                         item: viewModel.selectedItem,
@@ -61,13 +68,12 @@ struct MainWindowView: View {
                     .frame(minHeight: 220, idealHeight: 360)
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: viewModel.selectedItem?.id)
                 }
+                .background(PVPalette.surfaceContent)
+                }
             }
-            .background(Color(nsColor: .windowBackgroundColor))
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 980, minHeight: 720)
-        .searchable(text: $viewModel.searchText, placement: .toolbar, prompt: "搜索应用名称或端口，例如 3000")
-        .searchFocused($searchIsFocused)
         .toolbar { toolbarContent }
         .onAppear {
             portViewModel.setMainWindowVisible(true)
@@ -112,8 +118,12 @@ struct MainWindowView: View {
                     }
                     Spacer(minLength: 4)
                     Text(String(viewModel.count(for: item)))
-                        .foregroundStyle(.secondary)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(PVPalette.textSecondary)
                         .monospacedDigit()
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(PVPalette.textPrimary.opacity(0.055), in: Capsule())
                 }
             } icon: {
                 Image(systemName: item.symbol)
@@ -122,18 +132,38 @@ struct MainWindowView: View {
             .accessibilityLabel("\(item.rawValue)，\(viewModel.count(for: item)) 条。\(item.explanation)")
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background {
+            PVPalette.canvasBase
+            .overlay(alignment: .trailing) {
+                Rectangle()
+                    .fill(PVPalette.edgeSeparator)
+                    .frame(width: 1)
+            }
+        }
         .navigationTitle("Port Viewer")
         .navigationSplitViewColumnWidth(min: 200, ideal: 225, max: 270)
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            PremiumSearchField(
+                text: $viewModel.searchText,
+                prompt: "搜索应用名称或端口，例如 3000",
+                focusRequest: $searchIsFocused
+            )
+            .frame(width: 310)
+            .accessibilityLabel("搜索应用名称或端口")
+        }
+
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
                 portViewModel.togglePause()
             } label: {
                 Label(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新", systemImage: portViewModel.isPaused ? "play.fill" : "pause.fill")
             }
+            .buttonStyle(QuietButtonStyle())
             .help(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
             .accessibilityLabel(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
 
@@ -142,6 +172,7 @@ struct MainWindowView: View {
             } label: {
                 Label("立即刷新", systemImage: "arrow.clockwise")
             }
+            .buttonStyle(QuietButtonStyle())
             .disabled(portViewModel.isRefreshing)
             .help("立即刷新（Command-R）")
             .accessibilityLabel("立即刷新网络活动列表")
@@ -149,6 +180,7 @@ struct MainWindowView: View {
             SettingsLink {
                 Label("设置", systemImage: "gearshape")
             }
+            .buttonStyle(QuietButtonStyle())
             .help("设置")
         }
     }
@@ -172,8 +204,10 @@ struct MainWindowView: View {
                     Button("清除搜索与筛选") {
                         viewModel.clearSearchAndFilters()
                     }
+                    .buttonStyle(GlassButtonStyle())
                 } else {
                     Button("重新查询") { portViewModel.refreshNow() }
+                        .buttonStyle(AccentButtonStyle())
                 }
             }
         } else {
@@ -211,40 +245,46 @@ private struct OverviewBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 20) {
-            metric(.waiting, value: portViewModel.listeningCount, symbol: "dot.radiowaves.left.and.right", color: .green)
-            metric(.connections, value: portViewModel.activeConnectionCount, symbol: "arrow.left.arrow.right", color: .blue)
-            metric(.other, value: portViewModel.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: .secondary)
-            Spacer()
-            Text(updateDescription)
-                .foregroundStyle(.secondary)
-            Button {
-                help = .port
-            } label: {
-                Label("什么是端口？", systemImage: "questionmark.circle")
+        HStack(spacing: 8) {
+            metric(.waiting, value: portViewModel.listeningCount, symbol: "dot.radiowaves.left.and.right", color: PVPalette.waiting)
+            metric(.connections, value: portViewModel.activeConnectionCount, symbol: "arrow.left.arrow.right", color: PVPalette.connected)
+            metric(.other, value: portViewModel.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: PVPalette.neutral)
+            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                Text(updateDescription)
+                    .font(.caption)
+                    .foregroundStyle(PVPalette.textTertiary)
+                Button {
+                    help = .port
+                } label: {
+                    Label("什么是端口？", systemImage: "questionmark.circle")
+                }
+                .buttonStyle(QuietButtonStyle(size: 30, horizontalPadding: 8))
+                .accessibilityHint("打开端口概念说明")
             }
-            .buttonStyle(.link)
-            .accessibilityHint("打开端口概念说明")
+            .padding(.leading, 14)
+            .padding(.trailing, 6)
+            .frame(minHeight: 54)
+            .background(PVPalette.surfaceBento, in: RoundedRectangle(cornerRadius: PVRadius.panel, style: .continuous))
+            .shadow(color: PVPalette.shadowAmbient.opacity(0.055), radius: 14, y: 6)
         }
         .font(.callout)
-        .padding(.horizontal, 16)
-        .frame(minHeight: 44)
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
         .popover(item: $help) { topic in
             HelpPopover(title: topic.rawValue, text: topic.explanation)
         }
     }
 
     private func metric(_ topic: OverviewHelp, value: Int, symbol: String, color: Color) -> some View {
-        Button {
-            help = topic
-        } label: {
-            Label("\(topic.rawValue) \(value)", systemImage: symbol)
-                .foregroundStyle(color)
-        }
-        .buttonStyle(.plain)
-        .help(topic.explanation)
-        .accessibilityLabel("\(topic.rawValue)，\(value) 条")
-        .accessibilityHint("打开指标说明")
+        MetricRailButton(
+            title: topic.rawValue,
+            value: value,
+            symbol: symbol,
+            color: color,
+            help: topic.explanation
+        ) { help = topic }
     }
 
     private var updateDescription: String {
@@ -252,6 +292,49 @@ private struct OverviewBar: View {
         let elapsed = Date().timeIntervalSince(update)
         if elapsed < 10 { return "刚刚更新" }
         return "已更新 \(update.formatted(.relative(presentation: .named)))"
+    }
+}
+
+private struct MetricRailButton: View {
+    let title: String
+    let value: Int
+    let symbol: String
+    let color: Color
+    let help: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .foregroundStyle(color)
+                    .frame(width: 30, height: 30)
+                    .background(color.opacity(0.11), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                Text(String(value))
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(PVPalette.textPrimary)
+                    .monospacedDigit()
+                Text(title)
+                    .foregroundStyle(PVPalette.textSecondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .frame(minWidth: 150, minHeight: 54, alignment: .leading)
+            .background(
+                isHovered ? color.opacity(0.075) : PVPalette.surfaceBento,
+                in: RoundedRectangle(cornerRadius: PVRadius.panel, style: .continuous)
+            )
+            .shadow(color: PVPalette.shadowAmbient.opacity(isHovered ? 0.075 : 0.045), radius: 14, y: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(PVMotion.hover) { isHovered = hovering }
+        }
+        .help(help)
+        .accessibilityLabel("\(title)，\(value) 条")
+        .accessibilityHint("打开指标说明")
     }
 }
 
@@ -269,38 +352,47 @@ private struct FilterBar: View {
     let reset: () -> Void
 
     @State private var showsMoreFilters = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Picker("活动类型", selection: $scope) {
-                    ForEach(SidebarScope.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden()
+                PremiumPicker(
+                    "活动类型",
+                    symbol: "waveform.path.ecg",
+                    options: SidebarScope.allCases,
+                    selection: $scope,
+                    optionText: \.rawValue
+                )
                 .frame(width: 150)
-                .accessibilityLabel("活动类型筛选")
 
-                Picker("访问范围", selection: $accessFilter) {
-                    ForEach(AccessFilter.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden()
+                PremiumPicker(
+                    "访问范围",
+                    symbol: "network",
+                    options: AccessFilter.allCases,
+                    selection: $accessFilter,
+                    optionText: \.rawValue
+                )
                 .frame(width: 195)
-                .accessibilityLabel("访问范围筛选")
 
-                Picker("归属", selection: $ownerFilter) {
-                    ForEach(OwnerFilter.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden()
+                PremiumPicker(
+                    "归属",
+                    symbol: "person.crop.circle",
+                    options: OwnerFilter.allCases,
+                    selection: $ownerFilter,
+                    optionText: \.rawValue
+                )
                 .frame(width: 155)
-                .accessibilityLabel("归属筛选")
 
                 if scope == .connections {
-                    Picker("连接状态", selection: $connectionPhaseFilter) {
-                        ForEach(ConnectionPhaseFilter.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .labelsHidden()
+                    PremiumPicker(
+                        "连接状态",
+                        symbol: "arrow.left.arrow.right",
+                        options: ConnectionPhaseFilter.allCases,
+                        selection: $connectionPhaseFilter,
+                        optionText: \.rawValue
+                    )
                     .frame(width: 155)
-                    .accessibilityLabel("连接活动状态筛选")
                 }
 
                 Button {
@@ -308,6 +400,7 @@ private struct FilterBar: View {
                 } label: {
                     Label("更多筛选", systemImage: "line.3.horizontal.decrease.circle")
                 }
+                .buttonStyle(GlassButtonStyle())
                 .popover(isPresented: $showsMoreFilters, arrowEdge: .bottom) {
                     MoreFiltersPopover(
                         protocolFilter: $protocolFilter,
@@ -337,19 +430,23 @@ private struct FilterBar: View {
                                         .font(.caption2)
                                 }
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                            .buttonStyle(FilterChipButtonStyle())
                             .accessibilityLabel("移除筛选：\(label)")
                         }
                         Button("清除全部", action: reset)
-                            .buttonStyle(.link)
+                            .buttonStyle(QuietButtonStyle(size: 26, horizontalPadding: 7))
                     }
                 }
                 .scrollIndicators(.hidden)
+                .transition(.opacity)
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .frostedSurface(.chrome, radius: PVRadius.panel)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 10)
+        .animation(reduceMotion ? nil : PVMotion.reveal, value: activeFilterLabels)
     }
 }
 
@@ -368,37 +465,43 @@ private struct MoreFiltersPopover: View {
                 title: "传输方式",
                 explanation: "TCP 会建立可靠连接；UDP 不保持固定连接状态。"
             ) {
-                Picker("传输方式", selection: $protocolFilter) {
-                    ForEach(ProtocolFilter.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden()
+                PremiumPicker(
+                    "传输方式",
+                    options: ProtocolFilter.allCases,
+                    selection: $protocolFilter,
+                    optionText: \.rawValue
+                )
             }
 
             technicalPicker(
                 title: "地址格式",
                 explanation: "IPv4 和 IPv6 是两种网络地址格式，通常不需要手动处理。"
             ) {
-                Picker("地址格式", selection: $ipFilter) {
-                    ForEach(IPFilter.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .labelsHidden()
+                PremiumPicker(
+                    "地址格式",
+                    options: IPFilter.allCases,
+                    selection: $ipFilter,
+                    optionText: \.rawValue
+                )
             }
 
             technicalPicker(
                 title: "原始 TCP 状态",
                 explanation: "中文在前，括号中保留系统返回的原始状态代码。"
             ) {
-                Picker("原始 TCP 状态", selection: $stateFilter) {
-                    Text("全部状态").tag("")
-                    ForEach(stateOptions, id: \.self) { state in
-                        Text("\(PortRecord.friendlyStatusTitle(for: state))（\(state)）").tag(state)
+                PremiumPicker(
+                    "原始 TCP 状态",
+                    options: [""] + stateOptions,
+                    selection: $stateFilter,
+                    optionText: { state in
+                        state.isEmpty ? "全部状态" : "\(PortRecord.friendlyStatusTitle(for: state))（\(state)）"
                     }
-                }
-                .labelsHidden()
+                )
             }
         }
         .padding(18)
         .frame(width: 330)
+        .frostedSurface(.floating, radius: PVRadius.floating)
     }
 
     private func technicalPicker<Content: View>(
@@ -409,9 +512,10 @@ private struct MoreFiltersPopover: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.callout.weight(.medium))
             content()
+                .frame(maxWidth: .infinity)
             Text(explanation)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PVPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -447,13 +551,13 @@ private struct PortTable: View {
                             if !item.representative.belongsToCurrentUser {
                                 Image(systemName: "lock.fill")
                                     .font(.caption2)
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(PVPalette.warning)
                                     .help("其他用户的应用/服务")
                             }
                             if ProcessProtectionPolicy.isCritical(item.representative) {
                                 Image(systemName: "exclamationmark.shield.fill")
                                     .font(.caption2)
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(PVPalette.warning)
                                     .help("关键系统进程")
                             }
                         }
@@ -506,6 +610,7 @@ private struct PortTable: View {
             .width(min: 230, ideal: 300)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
+        .background(PVPalette.surfaceContent)
         .accessibilityLabel("应用、本机端口和网络活动列表")
     }
 
@@ -610,10 +715,10 @@ private struct FriendlyStatusLabel: View {
 
     private var color: Color {
         switch item.activityKind {
-        case .waiting: return .green
-        case .connected: return .blue
-        case .transitioning: return .secondary
-        case .other: return .secondary
+        case .waiting: return PVPalette.waiting
+        case .connected: return PVPalette.connected
+        case .transitioning: return PVPalette.neutral
+        case .other: return PVPalette.neutral
         }
     }
 }
@@ -645,9 +750,9 @@ private struct PortStatusCell: View {
 
     private func activityColor(for summary: ListenerActivitySummary) -> Color {
         if case .ended = summary.recentChange?.kind, summary.connectionCount == 0 {
-            return .secondary
+            return PVPalette.neutral
         }
-        return .blue
+        return PVPalette.connected
     }
 }
 
@@ -689,27 +794,27 @@ private struct ActivitySummaryBadges: View {
                 ActivityMetricBadge(
                     value: item.localPorts.count,
                     symbol: "rectangle.stack.fill",
-                    color: .green,
+                    color: PVPalette.waiting,
                     accessibilityText: "\(item.localPorts.count) 个服务端口"
                 )
             } else if item.isConnectionSummary, item.connectionCount > 1 {
                 ActivityMetricBadge(
                     value: item.connectionCount,
                     symbol: "link",
-                    color: .blue,
+                    color: PVPalette.connected,
                     accessibilityText: "\(item.connectionCount) 条连接"
                 )
                 ActivityMetricBadge(
                     value: item.remoteTargetCount,
                     symbol: "network",
-                    color: .blue,
+                    color: PVPalette.connected,
                     accessibilityText: "\(item.remoteTargetCount) 个连接目标"
                 )
             } else if item.rawRecords.count > 1, item.processCount == 1 {
                 ActivityMetricBadge(
                     value: item.rawRecords.count,
                     symbol: "doc.on.doc",
-                    color: .secondary,
+                    color: PVPalette.neutral,
                     accessibilityText: "\(item.rawRecords.count) 条技术记录"
                 )
             }
@@ -718,7 +823,7 @@ private struct ActivitySummaryBadges: View {
                 ActivityMetricBadge(
                     value: listenerProcessCount,
                     symbol: "person.2.fill",
-                    color: .secondary,
+                    color: PVPalette.neutral,
                     accessibilityText: "共 \(listenerProcessCount) 个进程使用其中端口"
                 )
             }
@@ -742,8 +847,7 @@ private struct ActivityMetricBadge: View {
         .foregroundStyle(color)
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
-        .background(color.opacity(0.1), in: Capsule())
-        .overlay { Capsule().stroke(color.opacity(0.22), lineWidth: 0.7) }
+        .background(color.opacity(0.11), in: Capsule())
         .help(accessibilityText)
         .accessibilityLabel(accessibilityText)
     }
@@ -753,9 +857,9 @@ private struct CompactPortClusterView: View {
     let item: ReadablePortItem
 
     private var color: Color {
-        if item.representative.isListening { return .green }
-        if item.isConnectionSummary { return .blue }
-        return .secondary
+        if item.representative.isListening { return PVPalette.waiting }
+        if item.isConnectionSummary { return PVPalette.connected }
+        return PVPalette.neutral
     }
 
     private var symbol: String {
@@ -772,10 +876,6 @@ private struct CompactPortClusterView: View {
                         .padding(.horizontal, 5)
                         .padding(.vertical, 3)
                         .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 4)
-                                .stroke(color.opacity(0.28), lineWidth: 0.8)
-                        }
                 }
                 if item.localPorts.count > 2 {
                     Text("+\(item.localPorts.count - 2)")
@@ -816,15 +916,15 @@ private struct CompactTopologyView: View {
                     symbol: "rectangle.stack.fill",
                     count: item.localPorts.count,
                     label: item.localPorts.count > 1 ? "服务端口" : item.localPortText,
-                    color: .green
+                    color: PVPalette.waiting
                 )
                 if listenerProcessCount > 1 {
-                    CompactTopologyArrow(symbol: "arrow.right", color: .secondary)
+                    CompactTopologyArrow(symbol: "arrow.right", color: PVPalette.neutral)
                     CompactTopologyNode(
                         symbol: "person.2.fill",
                         count: listenerProcessCount,
                         label: "进程共享",
-                        color: .secondary
+                        color: PVPalette.neutral
                     )
                 }
             } else {
@@ -832,17 +932,17 @@ private struct CompactTopologyView: View {
                     symbol: "rectangle.connected.to.line.below",
                     count: max(item.localPorts.count, 1),
                     label: item.localPorts.count > 1 ? "本机端口" : item.localPortText,
-                    color: item.isConnectionSummary ? .blue : .secondary
+                    color: item.isConnectionSummary ? PVPalette.connected : PVPalette.neutral
                 )
                 CompactTopologyArrow(
                     symbol: item.transport == .udp ? "arrow.left.and.right" : "arrow.left.arrow.right",
-                    color: item.isConnectionSummary ? .blue : .secondary
+                    color: item.isConnectionSummary ? PVPalette.connected : PVPalette.neutral
                 )
                 CompactTopologyNode(
                     symbol: item.remoteTargetCount > 0 ? "network" : "questionmark",
                     count: max(item.remoteTargetCount, 1),
                     label: targetLabel,
-                    color: item.isConnectionSummary ? .blue : .secondary
+                    color: item.isConnectionSummary ? PVPalette.connected : PVPalette.neutral
                 )
             }
         }
@@ -867,7 +967,7 @@ private struct CompactTopologyView: View {
         }
     }
 
-    private var sourceColor: Color { item.accessScope == .networkPossible ? .orange : .secondary }
+    private var sourceColor: Color { item.accessScope == .networkPossible ? PVPalette.warning : PVPalette.neutral }
 
     private var targetLabel: String {
         if item.remoteTargetCount > 1 { return "\(item.remoteTargetCount) 个目标" }
@@ -888,10 +988,6 @@ private struct CompactTopologyNode: View {
                 RoundedRectangle(cornerRadius: 5)
                     .fill(color.opacity(0.1))
                     .frame(width: 28, height: 26)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 5)
-                            .stroke(color.opacity(0.25), lineWidth: 0.8)
-                    }
                 Image(systemName: symbol)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(color)
@@ -987,7 +1083,7 @@ private struct RecordDetailView: View {
                 TeachingEmptyDetail()
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(PVPalette.surfaceContent)
     }
 
     private func endedBanner(for item: ReadablePortItem) -> some View {
@@ -1010,11 +1106,11 @@ private struct RecordDetailView: View {
             Button(action: onDismissEnded) {
                 Image(systemName: "xmark")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(QuietButtonStyle(size: 28, horizontalPadding: 0))
             .accessibilityLabel("关闭已结束活动的详情")
         }
         .padding(12)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 9))
+        .frostedSurface(.raised, radius: PVRadius.control)
     }
 
     private func meaningSection(for item: ReadablePortItem) -> some View {
@@ -1032,14 +1128,14 @@ private struct RecordDetailView: View {
 
     private func explanations(for item: ReadablePortItem) -> [MeaningExplanation] {
         var values = item.meaningMessages.map {
-            MeaningExplanation(text: $0, symbol: "info.circle", color: Color.secondary)
+            MeaningExplanation(text: $0, symbol: "info.circle")
         }
         let record = item.representative
         if !record.belongsToCurrentUser {
-            values.append(.init(text: "这是其他用户的进程，当前版本不能直接结束它。", symbol: "lock.fill", color: .orange))
+            values.append(.init(text: "这是其他用户的进程，当前版本不能直接结束它。", symbol: "lock.fill", warning: true))
         }
         if ProcessProtectionPolicy.isCritical(record) {
-            values.append(.init(text: "这是关键系统进程，结束它可能影响系统功能；强制结束已禁用。", symbol: "exclamationmark.shield.fill", color: .orange))
+            values.append(.init(text: "这是关键系统进程，结束它可能影响系统功能；强制结束已禁用。", symbol: "exclamationmark.shield.fill", warning: true))
         }
         return Array(values.prefix(3))
     }
@@ -1093,6 +1189,7 @@ private struct RecordDetailView: View {
                         }
                     }
                 }
+                .buttonStyle(DangerButtonStyle())
                 .disabled(portViewModel.isRefreshing || !isAllowed)
                 .help("选择要结束的具体进程；操作前仍会重新校验")
                 .accessibilityHint("展开组成此服务的进程列表")
@@ -1100,6 +1197,7 @@ private struct RecordDetailView: View {
                 Button("结束进程…", role: .destructive) {
                     portViewModel.prepareToTerminate(record)
                 }
+                .buttonStyle(DangerButtonStyle())
                 .disabled(portViewModel.isRefreshing || !isAllowed)
                 .help(terminationHelp(for: record))
                 .accessibilityHint(terminationHelp(for: record))
@@ -1118,19 +1216,15 @@ private struct RecordDetailView: View {
 private struct MeaningExplanation: Hashable {
     let text: String
     let symbol: String
-    let colorName: String
+    let warning: Bool
 
-    init(text: String, symbol: String, color: Color) {
+    init(text: String, symbol: String, warning: Bool = false) {
         self.text = text
         self.symbol = symbol
-        if color == .orange {
-            colorName = "orange"
-        } else {
-            colorName = "secondary"
-        }
+        self.warning = warning
     }
 
-    var color: Color { colorName == "orange" ? .orange : .secondary }
+    var color: Color { warning ? PVPalette.warning : PVPalette.textSecondary }
 }
 
 private struct ConnectionDiagramView: View {
@@ -1277,7 +1371,7 @@ private struct ListenerPortActivityView: View {
                 Spacer()
                 Text(summary.currentDescription)
                     .font(.callout.weight(.medium))
-                    .foregroundStyle(summary.connectionCount > 0 ? Color.blue : Color.secondary)
+                    .foregroundStyle(summary.connectionCount > 0 ? PVPalette.connected : PVPalette.neutral)
             }
 
             if let recentChange = summary.recentChange {
@@ -1313,18 +1407,18 @@ private struct ListenerPortActivityView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
-        .background(activityBackground, in: RoundedRectangle(cornerRadius: 9))
-        .overlay {
-            RoundedRectangle(cornerRadius: 9)
-                .stroke(summary.connectionCount > 0 ? Color.blue.opacity(0.25) : Color(nsColor: .separatorColor), lineWidth: 1)
-        }
+        .premiumControlSurface(
+            radius: PVRadius.control,
+            isSelected: summary.connectionCount > 0,
+            accent: summary.connectionCount > 0 ? PVPalette.connected : PVPalette.neutral
+        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("端口活动。\(summary.accessibilityDescription)连接关系不代表此刻一定正在传输数据。")
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: summary)
     }
 
     private var activityBackground: Color {
-        summary.connectionCount > 0 ? Color.blue.opacity(0.07) : Color(nsColor: .windowBackgroundColor)
+        summary.connectionCount > 0 ? PVPalette.connected.opacity(0.07) : PVPalette.surfaceContent
     }
 
     private func recentChangeSymbol(_ kind: PortActivityChangeKind) -> String {
@@ -1337,8 +1431,8 @@ private struct ListenerPortActivityView: View {
 
     private func recentChangeColor(_ kind: PortActivityChangeKind) -> Color {
         switch kind {
-        case .appeared, .changed: return .blue
-        case .ended: return .secondary
+        case .appeared, .changed: return PVPalette.connected
+        case .ended: return PVPalette.neutral
         }
     }
 }
@@ -1377,6 +1471,9 @@ private struct RelationshipConnector {
 private struct RelationshipNodeView: View {
     let node: RelationshipNode
     @Binding var selectedNodeID: String?
+    @State private var isHovered = false
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button {
@@ -1386,7 +1483,7 @@ private struct RelationshipNodeView: View {
                 HStack(spacing: 8) {
                     Image(systemName: node.symbol)
                         .font(.title3)
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(PVPalette.accentPrimary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(node.title)
                             .font(.callout.weight(.medium))
@@ -1396,6 +1493,13 @@ private struct RelationshipNodeView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    if selectedNodeID == node.id || differentiateWithoutColor {
+                        Image(systemName: selectedNodeID == node.id ? "checkmark.circle.fill" : "circle")
+                            .font(.caption)
+                            .foregroundStyle(selectedNodeID == node.id ? PVPalette.accentPrimary : PVPalette.neutral)
+                            .accessibilityHidden(true)
                     }
                 }
 
@@ -1407,7 +1511,7 @@ private struct RelationshipNodeView: View {
                         if node.items.count > 3 {
                             Text("另有 \(node.items.count - 3) 项")
                                 .font(.caption2.weight(.medium))
-                                .foregroundStyle(.tint)
+                                .foregroundStyle(PVPalette.accentPrimary)
                                 .padding(.leading, 17)
                         }
                     }
@@ -1416,14 +1520,23 @@ private struct RelationshipNodeView: View {
             .padding(.horizontal, 11)
             .padding(.vertical, 9)
             .frame(width: 190, alignment: .leading)
-            .frame(minHeight: 58, alignment: .leading)
-            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
-            .overlay {
-                RoundedRectangle(cornerRadius: 9)
-                    .stroke(selectedNodeID == node.id ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: selectedNodeID == node.id ? 2 : 1)
-            }
+            .frame(minHeight: 64, alignment: .leading)
+            .premiumControlSurface(
+                radius: PVRadius.node,
+                isHovered: isHovered,
+                isSelected: selectedNodeID == node.id,
+                accent: PVPalette.accentPrimary,
+                raised: true
+            )
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            if reduceMotion {
+                isHovered = hovering
+            } else {
+                withAnimation(PVMotion.hover) { isHovered = hovering }
+            }
+        }
         .help(node.explanation)
         .accessibilityLabel(accessibilityText)
         .accessibilityHint("显示这个节点的解释")
@@ -1441,10 +1554,10 @@ private struct BranchItemRow: View {
     var body: some View {
         HStack(spacing: 0) {
             Circle()
-                .fill(Color.accentColor)
+                .fill(PVPalette.accentPrimary)
                 .frame(width: 5, height: 5)
             Rectangle()
-                .fill(Color.accentColor.opacity(0.45))
+                .fill(PVPalette.accentPrimary.opacity(0.45))
                 .frame(width: 9, height: 1)
             Text(text)
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -1452,7 +1565,7 @@ private struct BranchItemRow: View {
                 .truncationMode(.middle)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
-                .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                .background(PVPalette.accentPrimary.opacity(0.08), in: RoundedRectangle(cornerRadius: PVRadius.micro))
         }
     }
 }
@@ -1476,13 +1589,13 @@ private struct HorizontalConnectorView: View {
                         path.move(to: CGPoint(x: 0, y: proxy.size.height / 2))
                         path.addLine(to: CGPoint(x: proxy.size.width, y: proxy.size.height / 2))
                     }
-                    .stroke(.secondary, style: StrokeStyle(lineWidth: 1.4, dash: connector.dashed ? [5, 4] : []))
+                    .stroke(PVPalette.neutral, style: StrokeStyle(lineWidth: 1.4, dash: connector.dashed ? [5, 4] : []))
                 }
                 .frame(height: 8)
                 Image(systemName: "arrowtriangle.right.fill")
                     .font(.system(size: 6))
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(PVPalette.neutral)
         }
         .frame(minWidth: 70, idealWidth: 100, maxWidth: 120)
         .accessibilityElement(children: .ignore)
@@ -1540,6 +1653,10 @@ private struct TechnicalDetailsView: View {
         } label: {
             Label("技术详情", systemImage: "wrench.and.screwdriver")
                 .font(.headline)
+                .foregroundStyle(PVPalette.textPrimary)
+                .padding(.horizontal, 10)
+                .frame(minHeight: 32)
+                .background(PVPalette.surfaceControl.opacity(0.46), in: RoundedRectangle(cornerRadius: PVRadius.small))
         }
         .accessibilityHint(isExpanded ? "折叠完整技术参数" : "展开 PID、协议、地址、路径等完整技术参数")
     }
@@ -1648,6 +1765,9 @@ private struct TechnicalDetailsView: View {
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(PVPalette.textPrimary.opacity(0.04), in: RoundedRectangle(cornerRadius: PVRadius.small))
             }
         }
     }
@@ -1671,7 +1791,7 @@ private struct TechnicalDetailsView: View {
                             .font(.caption)
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(QuietButtonStyle(size: 30, horizontalPadding: 8))
                 .accessibilityHint("切换到这项网络活动")
             }
         }
@@ -1691,9 +1811,14 @@ private struct TeachingEmptyDetail: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
-                .font(.title2)
-                .foregroundStyle(.tertiary)
+            ZStack {
+                Circle()
+                    .fill(PVPalette.surfaceControl)
+                    .frame(width: 48, height: 48)
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.title2)
+                    .foregroundStyle(PVPalette.accentPrimary)
+            }
             Text("选择一项，我会解释它正在做什么")
                 .font(.headline)
             Text("你会看到应用、端口、连接关系和访问范围。专业参数仍可在“技术详情”中查看。")
@@ -1703,7 +1828,7 @@ private struct TeachingEmptyDetail: View {
             Button("先了解什么是端口") {
                 showsPortHelp = true
             }
-            .buttonStyle(.link)
+            .buttonStyle(GlassButtonStyle())
             .popover(isPresented: $showsPortHelp) {
                 HelpPopover(
                     title: "什么是端口？",
@@ -1727,7 +1852,7 @@ private struct ConceptHelpButton: View {
         } label: {
             Image(systemName: "questionmark.circle")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(QuietButtonStyle(size: 28, horizontalPadding: 0))
         .help(title)
         .accessibilityLabel("说明：\(title)")
         .popover(isPresented: $isPresented) {
@@ -1751,6 +1876,7 @@ private struct HelpPopover: View {
         }
         .padding(16)
         .frame(width: 300, alignment: .leading)
+        .frostedSurface(.floating, radius: PVRadius.floating)
     }
 }
 
@@ -1758,6 +1884,7 @@ private struct QueryBanner: View {
     let message: String
     let symbol: String
     let color: Color
+    var actionTitle = "重试"
     let action: () -> Void
 
     var body: some View {
@@ -1767,13 +1894,18 @@ private struct QueryBanner: View {
             Text(message)
                 .lineLimit(2)
             Spacer()
-            Button("重试", action: action)
-                .buttonStyle(.link)
+            Button(actionTitle, action: action)
+                .buttonStyle(GlassButtonStyle(height: 28, horizontalPadding: 9))
         }
         .font(.callout)
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
         .background(color.opacity(0.10))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(color.opacity(0.28))
+                .frame(height: 1)
+        }
         .accessibilityElement(children: .contain)
     }
 }
@@ -1793,13 +1925,14 @@ private struct OperationFeedbackBar: View {
             Button(action: dismiss) {
                 Image(systemName: "xmark")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(QuietButtonStyle(size: 28, horizontalPadding: 0))
             .accessibilityLabel("关闭操作结果")
         }
         .padding(.horizontal, 16)
         .frame(minHeight: 42)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) { Divider() }
+        .frostedSurface(.floating, radius: PVRadius.panel)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .contain)
     }
 
@@ -1814,10 +1947,10 @@ private struct OperationFeedbackBar: View {
 
     private var color: Color {
         switch feedback.kind {
-        case .success: return .green
-        case .warning: return .orange
-        case .error: return .red
-        case .information: return .blue
+        case .success: return PVPalette.waiting
+        case .warning: return PVPalette.warning
+        case .error: return PVPalette.danger
+        case .information: return PVPalette.connected
         }
     }
 }
