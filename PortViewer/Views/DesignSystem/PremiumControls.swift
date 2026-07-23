@@ -169,6 +169,79 @@ struct FilterChipButtonStyle: ButtonStyle {
     }
 }
 
+private struct PremiumPickerButtonStyle: ButtonStyle {
+    let isHovered: Bool
+    let isFocused: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        PremiumPickerButtonBody(
+            label: configuration.label,
+            isHovered: isHovered,
+            isFocused: isFocused,
+            isPressed: configuration.isPressed
+        )
+    }
+
+    private struct PremiumPickerButtonBody<Label: View>: View {
+        let label: Label
+        let isHovered: Bool
+        let isFocused: Bool
+        let isPressed: Bool
+
+        @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+        @Environment(\.colorSchemeContrast) private var contrast
+        @Environment(\.isEnabled) private var isEnabled
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous)
+            let isHighlighted = isHovered || isFocused
+            let restingFill = reduceTransparency
+                ? PVPalette.surfaceRaised
+                : PVPalette.canvasBase.opacity(0.78)
+            let fill = isHighlighted
+                ? PVPalette.accentPrimary.opacity(0.10)
+                : restingFill
+            let edge = isHighlighted
+                ? PVPalette.accentPrimary.opacity(0.72)
+                : PVPalette.textSecondary.opacity(contrast == .increased ? 0.62 : 0.34)
+
+            label
+                .background {
+                    shape
+                        .fill(fill)
+                        .overlay {
+                            shape.fill(isPressed ? PVPalette.textPrimary.opacity(0.07) : .clear)
+                        }
+                }
+                .overlay {
+                    shape.strokeBorder(
+                        edge,
+                        lineWidth: contrast == .increased || isHighlighted ? 1.4 : 1
+                    )
+                }
+                .overlay {
+                    if isFocused {
+                        shape
+                            .inset(by: -3)
+                            .stroke(PVPalette.accentPrimary.opacity(0.82), lineWidth: 2)
+                    }
+                }
+                .shadow(
+                    color: PVPalette.shadowNear.opacity(isPressed ? 0.18 : 0.48),
+                    radius: isPressed ? 1 : 3,
+                    y: 1
+                )
+                .shadow(
+                    color: PVPalette.shadowAmbient.opacity(isHighlighted ? 0.14 : 0.08),
+                    radius: 9,
+                    y: 4
+                )
+                .opacity(isEnabled ? 1 : 0.52)
+                .offset(y: isPressed ? 0.5 : 0)
+        }
+    }
+}
+
 struct PremiumPicker<Option: Hashable>: View {
     let title: String
     let symbol: String?
@@ -177,7 +250,9 @@ struct PremiumPicker<Option: Hashable>: View {
     let optionText: (Option) -> String
 
     @State private var isHovered = false
+    @FocusState private var isFocused: Bool
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         _ title: String,
@@ -219,26 +294,43 @@ struct PremiumPicker<Option: Hashable>: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 5)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(PVPalette.textSecondary)
-                    .frame(width: 20, height: 22)
-                    .background(PVPalette.textPrimary.opacity(0.055), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                Rectangle()
+                    .fill(PVPalette.edgeSeparator)
+                    .frame(width: 1, height: 16)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(isHovered || isFocused ? Color.white : PVPalette.accentPrimary)
+                    .frame(width: 21, height: 21)
+                    .background(
+                        isHovered || isFocused
+                            ? PVPalette.accentPrimary
+                            : PVPalette.accentPrimary.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    )
             }
             .padding(.leading, 11)
-            .padding(.trailing, 5)
-            .frame(height: 32)
-            .premiumControlSurface(isHovered: isHovered)
+            .padding(.trailing, 7)
+            .frame(height: 36)
             .contentShape(RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous))
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(PremiumPickerButtonStyle(isHovered: isHovered, isFocused: isFocused))
         .menuIndicator(.hidden)
+        .focused($isFocused)
         .onHover { hovering in
-            withAnimation(PVMotion.hover) { isHovered = hovering }
+            if reduceMotion {
+                isHovered = hovering
+            } else {
+                withAnimation(PVMotion.hover) { isHovered = hovering }
+            }
         }
         .opacity(isEnabled ? 1 : 0.52)
+        .help("选择\(title)")
         .accessibilityLabel(title)
         .accessibilityValue(optionText(selection))
+        .accessibilityHint("打开菜单以选择其他选项")
     }
 }
 
