@@ -20,37 +20,37 @@ enum PVSpacing {
 }
 
 enum PVMotion {
-    static let hover = Animation.easeOut(duration: 0.10)
-    static let focus = Animation.easeOut(duration: 0.14)
-    static let reveal = Animation.easeOut(duration: 0.18)
-    static let selection = Animation.easeInOut(duration: 0.20)
+    static let hover = Animation.easeOut(duration: 0.16)
+    static let focus = Animation.easeOut(duration: 0.18)
+    static let reveal = Animation.easeOut(duration: 0.24)
+    static let selection = Animation.easeInOut(duration: 0.22)
 }
 
 enum PVPalette {
-    static let canvasBase = dynamic(light: 0xF3F4F6, dark: 0x0D1118)
-    static let canvasTop = dynamic(light: 0xF8F9FB, dark: 0x151B26)
-    static let canvasBottom = dynamic(light: 0xEEF0F3, dark: 0x0A0E15)
+    static let canvasBase = dynamic(light: 0xE7E7EA, dark: 0x262628)
+    static let canvasTop = dynamic(light: 0xF4F4F5, dark: 0x323236)
+    static let canvasBottom = dynamic(light: 0xD8D8DC, dark: 0x1D1D1F)
 
-    static let surfaceContent = dynamic(light: 0xFCFDFF, dark: 0x161C27, lightAlpha: 0.94, darkAlpha: 0.94)
-    static let surfaceControl = dynamic(light: 0xFFFFFF, dark: 0x2E3849, lightAlpha: 0.72, darkAlpha: 0.74)
-    static let surfaceControlHover = dynamic(light: 0xFFFFFF, dark: 0x3C485C, lightAlpha: 0.88, darkAlpha: 0.84)
-    static let surfaceRaised = dynamic(light: 0xFFFFFF, dark: 0x283142, lightAlpha: 0.90, darkAlpha: 0.90)
-    static let surfaceBento = dynamic(light: 0xFFFFFF, dark: 0x202836, lightAlpha: 0.98, darkAlpha: 0.96)
+    static let surfaceGlass = dynamic(light: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.42, darkAlpha: 0.13)
+    static let surfaceContent = dynamic(light: 0xECECEF, dark: 0x242426, lightAlpha: 0.70, darkAlpha: 0.56)
+    static let surfaceControl = dynamic(light: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.46, darkAlpha: 0.075)
+    static let surfaceControlHover = dynamic(light: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.60, darkAlpha: 0.13)
+    static let surfaceRaised = dynamic(light: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.60, darkAlpha: 0.10)
+    static let surfaceBento = dynamic(light: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.50, darkAlpha: 0.08)
 
-    static let textPrimary = dynamic(light: 0x172033, dark: 0xF4F7FC)
-    static let textSecondary = dynamic(light: 0x4F5C71, dark: 0xB8C2D1)
-    static let textTertiary = dynamic(light: 0x6D798D, dark: 0x929EB0)
+    static let textPrimary = dynamic(light: 0x16213A, dark: 0xF7F8FF)
+    static let textSecondary = dynamic(light: 0x465571, dark: 0xC3CAE0)
+    static let textTertiary = dynamic(light: 0x65718A, dark: 0x98A3BD)
 
-    static let edgeOuter = dynamic(light: 0x52627A, dark: 0xDCE7F8, lightAlpha: 0.16, darkAlpha: 0.18)
-    static let edgeOuterStrong = dynamic(light: 0x40536E, dark: 0xE8F0FF, lightAlpha: 0.27, darkAlpha: 0.30)
-    static let edgeInnerHighlight = dynamic(light: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.66, darkAlpha: 0.10)
-    static let edgeSeparator = dynamic(light: 0x3C4B60, dark: 0xD6E2F5, lightAlpha: 0.17, darkAlpha: 0.14)
-    static let shadowNear = dynamic(light: 0x141E30, dark: 0x000000, lightAlpha: 0.07, darkAlpha: 0.24)
-    static let shadowAmbient = dynamic(light: 0x192844, dark: 0x000000, lightAlpha: 0.12, darkAlpha: 0.36)
+    static let edgeOuter = dynamic(light: 0x60708F, dark: 0xFFFFFF, lightAlpha: 0.20, darkAlpha: 0.11)
+    static let edgeOuterStrong = dynamic(light: 0x536481, dark: 0xFFFFFF, lightAlpha: 0.34, darkAlpha: 0.20)
+    static let edgeSeparator = dynamic(light: 0x52617D, dark: 0xDCE4FA, lightAlpha: 0.17, darkAlpha: 0.14)
+    static let shadowAmbient = dynamic(light: 0x42559A, dark: 0x000000, lightAlpha: 0.16, darkAlpha: 0.42)
 
-    static let accentPrimary = dynamic(light: 0x1677FF, dark: 0x5AA7FF)
-    static let accentIndigo = dynamic(light: 0x5C66E8, dark: 0x858CFF)
-    static let accentCyan = dynamic(light: 0x159FBE, dark: 0x4CCBE1)
+    static let accentPrimary = dynamic(light: 0x287CFF, dark: 0x63A8FF)
+    static let accentIndigo = dynamic(light: 0x7157E8, dark: 0x9685FF)
+    static let accentCyan = dynamic(light: 0x159FBE, dark: 0x50D2DF)
+    static let accentPink = dynamic(light: 0xD856C7, dark: 0xF07ADE)
     static let waiting = dynamic(light: 0x239B62, dark: 0x45D087)
     static let connected = dynamic(light: 0x1677E8, dark: 0x62AAFF)
     static let warning = dynamic(light: 0xC87512, dark: 0xFFB14A)
@@ -59,8 +59,8 @@ enum PVPalette {
 
     static let accentGradient = LinearGradient(
         colors: [
-            dynamic(light: 0x2387FF, dark: 0x55AAFF),
-            dynamic(light: 0x596DFF, dark: 0x777EFF)
+            dynamic(light: 0x318BFF, dark: 0x62B0FF),
+            dynamic(light: 0x7357EA, dark: 0x8B7BFF)
         ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing

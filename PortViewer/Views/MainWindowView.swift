@@ -8,73 +8,81 @@ struct MainWindowView: View {
 
     @State private var technicalDetailsExpanded = false
     @State private var searchIsFocused = false
+    @State private var sidebarIsVisible = true
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-        } detail: {
-            ZStack {
-                PremiumCanvas()
+        ZStack {
+            PremiumCanvas()
+            HSplitView {
+                if sidebarIsVisible {
+                    sidebar
+                        .frame(minWidth: 200, idealWidth: 225, maxWidth: 270)
+                }
 
                 VStack(spacing: 0) {
-                if let issue = portViewModel.state.issueMessage {
-                    QueryBanner(message: issue, symbol: "exclamationmark.triangle.fill", color: PVPalette.warning) {
-                        portViewModel.refreshNow()
+                    if let issue = portViewModel.state.issueMessage {
+                        QueryBanner(message: issue, symbol: "exclamationmark.triangle.fill", color: PVPalette.warning) {
+                            portViewModel.refreshNow()
+                        }
+                    } else if portViewModel.isPaused {
+                        QueryBanner(
+                            message: "自动刷新已暂停，当前数据可能已过期。",
+                            symbol: "pause.circle.fill",
+                            color: PVPalette.neutral,
+                            actionTitle: "继续刷新"
+                        ) {
+                            portViewModel.togglePause()
+                        }
                     }
-                } else if portViewModel.isPaused {
-                    QueryBanner(
-                        message: "自动刷新已暂停，当前数据可能已过期。",
-                        symbol: "pause.circle.fill",
-                        color: PVPalette.neutral,
-                        actionTitle: "继续刷新"
-                    ) {
-                        portViewModel.togglePause()
-                    }
-                }
 
-                OverviewBar(portViewModel: portViewModel)
-                FilterBar(
-                    scope: $viewModel.scope,
-                    accessFilter: $viewModel.accessFilter,
-                    ownerFilter: $viewModel.ownerFilter,
-                    connectionPhaseFilter: $viewModel.connectionPhaseFilter,
-                    protocolFilter: $viewModel.protocolFilter,
-                    ipFilter: $viewModel.ipFilter,
-                    stateFilter: $viewModel.stateFilter,
-                    stateOptions: viewModel.stateOptions,
-                    activeFilterLabels: viewModel.activeFilterLabels,
-                    clearFilter: viewModel.clearFilter,
-                    reset: viewModel.resetFilters
-                )
-
-                VSplitView {
-                    tableOrState
-                        .frame(minHeight: 180, idealHeight: 300)
-                        .background(PVPalette.surfaceContent)
-
-                    RecordDetailView(
-                        item: viewModel.selectedItem,
-                        hasEnded: viewModel.selectionHasEnded,
-                        replacement: viewModel.replacementItem,
-                        allItems: viewModel.allItems,
-                        allRecords: portViewModel.records,
-                        queryDuration: portViewModel.lastQueryDuration,
-                        lastSuccessfulUpdate: portViewModel.lastSuccessfulUpdate,
-                        technicalDetailsExpanded: $technicalDetailsExpanded,
-                        portViewModel: portViewModel,
-                        onSelectItem: viewModel.select,
-                        onDismissEnded: viewModel.clearSelection
+                    OverviewBar(portViewModel: portViewModel)
+                    FilterBar(
+                        scope: $viewModel.scope,
+                        accessFilter: $viewModel.accessFilter,
+                        ownerFilter: $viewModel.ownerFilter,
+                        connectionPhaseFilter: $viewModel.connectionPhaseFilter,
+                        protocolFilter: $viewModel.protocolFilter,
+                        ipFilter: $viewModel.ipFilter,
+                        stateFilter: $viewModel.stateFilter,
+                        stateOptions: viewModel.stateOptions,
+                        activeFilterLabels: viewModel.activeFilterLabels,
+                        clearFilter: viewModel.clearFilter,
+                        reset: viewModel.resetFilters
                     )
-                    .frame(minHeight: 220, idealHeight: 360)
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: viewModel.selectedItem?.id)
-                }
-                .background(PVPalette.surfaceContent)
+
+                    VSplitView {
+                        tableOrState
+                            .frame(minHeight: 220, idealHeight: 360)
+                            .background(Color.clear)
+
+                        RecordDetailView(
+                            item: viewModel.selectedItem,
+                            hasEnded: viewModel.selectionHasEnded,
+                            replacement: viewModel.replacementItem,
+                            allItems: viewModel.allItems,
+                            allRecords: portViewModel.records,
+                            queryDuration: portViewModel.lastQueryDuration,
+                            lastSuccessfulUpdate: portViewModel.lastSuccessfulUpdate,
+                            technicalDetailsExpanded: $technicalDetailsExpanded,
+                            portViewModel: portViewModel,
+                            onSelectItem: viewModel.select,
+                            onDismissEnded: viewModel.clearSelection
+                        )
+                        .frame(minHeight: 200, idealHeight: 260)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: viewModel.selectedItem?.id)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: PVRadius.panel, style: .continuous))
+                    .frostedSurface(.content, radius: PVRadius.panel)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
                 }
             }
         }
-        .navigationSplitViewStyle(.balanced)
+        .containerBackground(.clear, for: .window)
         .frame(minWidth: 980, minHeight: 720)
         .toolbar { toolbarContent }
+        .toolbarBackground(.clear, for: .windowToolbar)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .onAppear {
             portViewModel.setMainWindowVisible(true)
         }
@@ -134,19 +142,28 @@ struct MainWindowView: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background {
-            PVPalette.canvasBase
-            .overlay(alignment: .trailing) {
+            Color.clear
+                .overlay(alignment: .trailing) {
                 Rectangle()
                     .fill(PVPalette.edgeSeparator)
                     .frame(width: 1)
             }
         }
-        .navigationTitle("Port Viewer")
-        .navigationSplitViewColumnWidth(min: 200, ideal: 225, max: 270)
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button {
+                sidebarIsVisible.toggle()
+            } label: {
+                Label(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏", systemImage: "sidebar.left")
+            }
+            .buttonStyle(QuietButtonStyle())
+            .help(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏")
+            .accessibilityLabel(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏")
+        }
+
         ToolbarItem(placement: .principal) {
             PremiumSearchField(
                 text: $viewModel.searchText,
@@ -247,9 +264,12 @@ private struct OverviewBar: View {
     var body: some View {
         HStack(spacing: 8) {
             metric(.waiting, value: portViewModel.listeningCount, symbol: "dot.radiowaves.left.and.right", color: PVPalette.waiting)
+            railSeparator
             metric(.connections, value: portViewModel.activeConnectionCount, symbol: "arrow.left.arrow.right", color: PVPalette.connected)
+            railSeparator
             metric(.other, value: portViewModel.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: PVPalette.neutral)
             Spacer(minLength: 0)
+            railSeparator
             HStack(spacing: 8) {
                 Text(updateDescription)
                     .font(.caption)
@@ -262,13 +282,13 @@ private struct OverviewBar: View {
                 .buttonStyle(QuietButtonStyle(size: 30, horizontalPadding: 8))
                 .accessibilityHint("打开端口概念说明")
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 6)
-            .frame(minHeight: 54)
-            .background(PVPalette.surfaceBento, in: RoundedRectangle(cornerRadius: PVRadius.panel, style: .continuous))
-            .shadow(color: PVPalette.shadowAmbient.opacity(0.055), radius: 14, y: 6)
+            .padding(.leading, 8)
+            .frame(minHeight: 44)
         }
         .font(.callout)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frostedSurface(.chrome, radius: PVRadius.panel)
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 8)
@@ -292,6 +312,13 @@ private struct OverviewBar: View {
         let elapsed = Date().timeIntervalSince(update)
         if elapsed < 10 { return "刚刚更新" }
         return "已更新 \(update.formatted(.relative(presentation: .named)))"
+    }
+
+    private var railSeparator: some View {
+        Rectangle()
+            .fill(PVPalette.edgeSeparator)
+            .frame(width: 1, height: 28)
+            .accessibilityHidden(true)
     }
 }
 
@@ -320,12 +347,11 @@ private struct MetricRailButton: View {
                     .lineLimit(1)
             }
             .padding(.horizontal, 12)
-            .frame(minWidth: 150, minHeight: 54, alignment: .leading)
+            .frame(minWidth: 150, minHeight: 44, alignment: .leading)
             .background(
-                isHovered ? color.opacity(0.075) : PVPalette.surfaceBento,
-                in: RoundedRectangle(cornerRadius: PVRadius.panel, style: .continuous)
+                isHovered ? color.opacity(0.12) : Color.clear,
+                in: RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous)
             )
-            .shadow(color: PVPalette.shadowAmbient.opacity(isHovered ? 0.075 : 0.045), radius: 14, y: 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -336,6 +362,7 @@ private struct MetricRailButton: View {
         .accessibilityLabel("\(title)，\(value) 条")
         .accessibilityHint("打开指标说明")
     }
+
 }
 
 private struct FilterBar: View {
@@ -609,8 +636,9 @@ private struct PortTable: View {
             }
             .width(min: 230, ideal: 300)
         }
-        .tableStyle(.inset(alternatesRowBackgrounds: true))
-        .background(PVPalette.surfaceContent)
+        .tableStyle(.inset(alternatesRowBackgrounds: false))
+        .scrollContentBackground(.hidden)
+        .background(TableGlassBackgroundBridge())
         .accessibilityLabel("应用、本机端口和网络活动列表")
     }
 
@@ -1083,7 +1111,7 @@ private struct RecordDetailView: View {
                 TeachingEmptyDetail()
             }
         }
-        .background(PVPalette.surfaceContent)
+        .background(Color.clear)
     }
 
     private func endedBanner(for item: ReadablePortItem) -> some View {

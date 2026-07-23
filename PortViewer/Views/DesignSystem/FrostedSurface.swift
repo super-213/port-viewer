@@ -8,7 +8,7 @@ enum FrostedSurfaceKind {
 
     var tint: Color {
         switch self {
-        case .chrome: PVPalette.surfaceBento
+        case .chrome: PVPalette.surfaceGlass
         case .content: PVPalette.surfaceContent
         case .raised: PVPalette.surfaceBento
         case .floating: PVPalette.surfaceRaised
@@ -30,6 +30,15 @@ enum FrostedSurfaceKind {
         case .content, .raised: .ultraThinMaterial
         }
     }
+
+    var tintOpacity: Double {
+        switch self {
+        case .chrome: 0.64
+        case .content: 0.78
+        case .raised: 0.58
+        case .floating: 0.70
+        }
+    }
 }
 
 struct PremiumCanvas: View {
@@ -39,23 +48,26 @@ struct PremiumCanvas: View {
         ZStack {
             LinearGradient(
                 colors: [PVPalette.canvasTop, PVPalette.canvasBase, PVPalette.canvasBottom],
-                startPoint: .top,
-                endPoint: .bottom
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
 
             if !reduceTransparency {
                 RadialGradient(
-                    colors: [PVPalette.accentPrimary.opacity(0.055), .clear],
-                    center: .topTrailing,
-                    startRadius: 10,
-                    endRadius: 440
+                    colors: [Color.white.opacity(0.075), .clear],
+                    center: UnitPoint(x: 0.22, y: 0.02),
+                    startRadius: 0,
+                    endRadius: 760
                 )
                 RadialGradient(
-                    colors: [PVPalette.accentIndigo.opacity(0.04), .clear],
-                    center: .bottomLeading,
-                    startRadius: 10,
-                    endRadius: 520
+                    colors: [Color.black.opacity(0.11), .clear],
+                    center: UnitPoint(x: 0.84, y: 0.98),
+                    startRadius: 0,
+                    endRadius: 900
                 )
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                PVPalette.canvasBase.opacity(0.22)
             }
         }
         .ignoresSafeArea()
@@ -74,71 +86,29 @@ private struct FrostedSurfaceModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        let usesMaterial = !reduceTransparency && kind == .floating
+        let usesMaterial = !reduceTransparency
         let outerEdge = contrast == .increased ? PVPalette.edgeOuterStrong : PVPalette.edgeOuter
         let ambientOpacity = controlActiveState == .inactive ? 0.45 : 1.0
-        let tintOpacity = usesMaterial ? 0.46 : 0.0
 
         content
             .background {
                 shape
                     .fill(usesMaterial ? AnyShapeStyle(kind.material) : AnyShapeStyle(kind.solidFallback))
-                    .overlay { shape.fill(kind.tint.opacity(tintOpacity)) }
-                    .overlay { shape.fill(kind == .floating ? Color.white.opacity(0.035) : .clear) }
+                    .overlay { shape.fill(kind.tint.opacity(usesMaterial ? kind.tintOpacity : 1)) }
             }
             .overlay {
-                if showsOuterEdge && kind == .floating {
-                    shape.strokeBorder(
-                        LinearGradient(
-                            colors: [PVPalette.edgeInnerHighlight, outerEdge.opacity(0.55), outerEdge],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: kind == .floating ? 1.25 : 1
-                    )
+                if showsOuterEdge {
+                    shape.strokeBorder(outerEdge, lineWidth: 1)
                 }
             }
-            .overlay {
-                if showsOuterEdge && kind == .floating {
-                    shape
-                        .inset(by: 1)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [PVPalette.edgeInnerHighlight.opacity(0.64), .clear, .clear],
-                                startPoint: .top,
-                                endPoint: .center
-                            ),
-                            lineWidth: 0.5
-                        )
-                }
-            }
-            .shadow(color: nearShadow(for: kind).opacity(ambientOpacity), radius: nearRadius(for: kind), y: nearY(for: kind))
             .shadow(
-                color: ambientShadow(for: kind).opacity(ambientOpacity),
-                radius: kind == .floating ? 22 : 14,
-                y: kind == .floating ? 12 : 6
+                color: kind == .floating
+                    ? PVPalette.shadowAmbient.opacity(0.46 * ambientOpacity)
+                    : .clear,
+                radius: 18,
+                y: 10
             )
     }
-
-    private func nearShadow(for kind: FrostedSurfaceKind) -> Color {
-        switch kind {
-        case .chrome, .raised: return PVPalette.shadowNear.opacity(0.42)
-        case .floating: return PVPalette.shadowNear
-        case .content: return .clear
-        }
-    }
-
-    private func ambientShadow(for kind: FrostedSurfaceKind) -> Color {
-        switch kind {
-        case .chrome: return PVPalette.shadowAmbient.opacity(0.055)
-        case .raised: return PVPalette.shadowAmbient.opacity(0.09)
-        case .floating: return PVPalette.shadowAmbient
-        case .content: return .clear
-        }
-    }
-
-    private func nearRadius(for kind: FrostedSurfaceKind) -> CGFloat { kind == .floating ? 5 : 2 }
-    private func nearY(for kind: FrostedSurfaceKind) -> CGFloat { kind == .floating ? 2 : 1 }
 }
 
 private struct PremiumControlSurfaceModifier: ViewModifier {
@@ -156,9 +126,9 @@ private struct PremiumControlSurfaceModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        let edge = isSelected ? accent.opacity(0.65) : PVPalette.edgeOuterStrong
-        let fill = isHovered ? PVPalette.surfaceBento : PVPalette.surfaceBento.opacity(0.92)
-        let pressedTint = isPressed ? Color.black.opacity(0.04) : .clear
+        let edge = isSelected ? accent.opacity(0.70) : PVPalette.edgeOuterStrong
+        let fill = isHovered ? PVPalette.surfaceControlHover : PVPalette.surfaceControl
+        let pressedTint = isPressed ? PVPalette.textPrimary.opacity(0.06) : .clear
 
         content
             .background {
@@ -168,9 +138,10 @@ private struct PremiumControlSurfaceModifier: ViewModifier {
                     .overlay { shape.fill(pressedTint) }
             }
             .overlay {
-                if contrast == .increased {
-                    shape.strokeBorder(edge, lineWidth: 1)
-                }
+                shape.strokeBorder(
+                    edge.opacity(contrast == .increased ? 1 : 0.66),
+                    lineWidth: contrast == .increased || isSelected ? 1.2 : 1
+                )
             }
             .overlay {
                 if isSelected {
@@ -184,14 +155,7 @@ private struct PremiumControlSurfaceModifier: ViewModifier {
                         .stroke(accent.opacity(0.82), lineWidth: 2)
                 }
             }
-            .shadow(color: PVPalette.shadowNear.opacity(isPressed ? 0.22 : 0.48), radius: isPressed ? 1 : 3, y: 1)
-            .shadow(
-                color: raised && !isPressed ? PVPalette.shadowAmbient.opacity(isHovered ? 0.15 : 0.10) : .clear,
-                radius: 10,
-                y: 5
-            )
-            .opacity(isEnabled ? 1 : 0.52)
-            .offset(y: isPressed ? 0.5 : 0)
+            .opacity(isEnabled ? (isPressed ? 0.88 : 1) : 0.52)
     }
 }
 

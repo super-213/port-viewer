@@ -43,7 +43,7 @@ struct MenuBarPanel: View {
 
     var body: some View {
         ZStack {
-            PVPalette.canvasBase
+            PremiumCanvas()
 
             VStack(spacing: 0) {
                 header
@@ -58,8 +58,10 @@ struct MenuBarPanel: View {
                 PremiumSeparator()
                 footer
             }
+            .frostedSurface(.chrome, radius: PVRadius.floating)
+            .padding(8)
         }
-        .frame(width: 380)
+        .frame(width: 396)
         .onAppear {
             portViewModel.setMenuBarPanelVisible(true)
         }
@@ -70,6 +72,16 @@ struct MenuBarPanel: View {
 
     private var header: some View {
         HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(PVPalette.accentGradient)
+                Image(systemName: "network")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 34, height: 34)
+            .accessibilityHidden(true)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text("Port Viewer")
                     .font(.headline)

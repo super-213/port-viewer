@@ -16,6 +16,7 @@ struct SettingsView: View {
                         .labelsHidden()
                 }
             }
+            .listRowBackground(PVPalette.surfaceBento)
 
             Section("自动刷新") {
                 settingPickerRow(
@@ -37,6 +38,7 @@ struct SettingsView: View {
                     .foregroundStyle(PVPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .listRowBackground(PVPalette.surfaceBento)
 
             Section("隐私与权限") {
                 VStack(spacing: 0) {
@@ -53,10 +55,12 @@ struct SettingsView: View {
                 .padding(.horizontal, 12)
                 .premiumControlSurface(radius: PVRadius.control)
             }
+            .listRowBackground(PVPalette.surfaceBento)
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .background { PremiumCanvas() }
+        .tint(PVPalette.accentPrimary)
         .frame(width: 480, height: 380)
     }
 

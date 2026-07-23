@@ -20,13 +20,7 @@ struct AccentButtonStyle: ButtonStyle {
                 .padding(.horizontal, 12)
                 .frame(minHeight: height)
                 .background(PVPalette.accentGradient, in: RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.30), lineWidth: 1)
-                }
-                .shadow(color: PVPalette.accentPrimary.opacity(isPressed ? 0.02 : 0.10), radius: 8, y: 4)
                 .opacity(isEnabled ? (isPressed ? 0.88 : 1) : 0.50)
-                .offset(y: isPressed ? 0.5 : 0)
         }
     }
 }
@@ -98,7 +92,6 @@ struct QuietButtonStyle: ButtonStyle {
                     in: RoundedRectangle(cornerRadius: PVRadius.small, style: .continuous)
                 )
                 .opacity(isEnabled ? (isPressed ? 0.70 : 1) : 0.48)
-                .offset(y: isPressed ? 0.5 : 0)
                 .contentShape(RoundedRectangle(cornerRadius: PVRadius.small, style: .continuous))
                 .onHover { hovering in
                     withAnimation(PVMotion.hover) { isHovered = hovering }
@@ -197,13 +190,13 @@ private struct PremiumPickerButtonStyle: ButtonStyle {
             let isHighlighted = isHovered || isFocused
             let restingFill = reduceTransparency
                 ? PVPalette.surfaceRaised
-                : PVPalette.canvasBase.opacity(0.78)
+                : PVPalette.surfaceControl
             let fill = isHighlighted
-                ? PVPalette.accentPrimary.opacity(0.10)
+                ? PVPalette.surfaceControlHover
                 : restingFill
             let edge = isHighlighted
                 ? PVPalette.accentPrimary.opacity(0.72)
-                : PVPalette.textSecondary.opacity(contrast == .increased ? 0.62 : 0.34)
+                : PVPalette.edgeOuterStrong.opacity(contrast == .increased ? 0.92 : 0.72)
 
             label
                 .background {
@@ -226,18 +219,7 @@ private struct PremiumPickerButtonStyle: ButtonStyle {
                             .stroke(PVPalette.accentPrimary.opacity(0.82), lineWidth: 2)
                     }
                 }
-                .shadow(
-                    color: PVPalette.shadowNear.opacity(isPressed ? 0.18 : 0.48),
-                    radius: isPressed ? 1 : 3,
-                    y: 1
-                )
-                .shadow(
-                    color: PVPalette.shadowAmbient.opacity(isHighlighted ? 0.14 : 0.08),
-                    radius: 9,
-                    y: 4
-                )
-                .opacity(isEnabled ? 1 : 0.52)
-                .offset(y: isPressed ? 0.5 : 0)
+                .opacity(isEnabled ? (isPressed ? 0.88 : 1) : 0.52)
         }
     }
 }
