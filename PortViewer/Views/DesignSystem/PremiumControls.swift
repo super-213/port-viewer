@@ -19,7 +19,7 @@ struct AccentButtonStyle: ButtonStyle {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .frame(minHeight: height)
-                .background(PVPalette.accentGradient, in: RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous))
+                .background(PVPalette.accentPrimary, in: RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous))
                 .opacity(isEnabled ? (isPressed ? 0.88 : 1) : 0.50)
         }
     }
@@ -195,13 +195,18 @@ private struct PremiumPickerButtonStyle: ButtonStyle {
                 ? PVPalette.surfaceControlHover
                 : restingFill
             let edge = isHighlighted
-                ? PVPalette.accentPrimary.opacity(0.72)
-                : PVPalette.edgeOuterStrong.opacity(contrast == .increased ? 0.92 : 0.72)
+                ? PVPalette.edgeOuterStrong
+                : PVPalette.edgeOuter.opacity(contrast == .increased ? 1 : 0.9)
 
             label
                 .background {
                     shape
-                        .fill(fill)
+                        .fill(
+                            reduceTransparency
+                                ? AnyShapeStyle(PVPalette.surfaceRaised)
+                                : AnyShapeStyle(.thinMaterial)
+                        )
+                        .overlay { shape.fill(fill) }
                         .overlay {
                             shape.fill(isPressed ? PVPalette.textPrimary.opacity(0.07) : .clear)
                         }
@@ -209,8 +214,22 @@ private struct PremiumPickerButtonStyle: ButtonStyle {
                 .overlay {
                     shape.strokeBorder(
                         edge,
-                        lineWidth: contrast == .increased || isHighlighted ? 1.4 : 1
+                        lineWidth: contrast == .increased || isHighlighted ? 1 : 0.75
                     )
+                }
+                .overlay {
+                    if !reduceTransparency {
+                        shape
+                            .inset(by: 1)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.20), .clear],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 0.5
+                            )
+                    }
                 }
                 .overlay {
                     if isFocused {
@@ -271,30 +290,20 @@ struct PremiumPicker<Option: Hashable>: View {
                         .foregroundStyle(PVPalette.textSecondary)
                 }
                 Text(optionText(selection))
-                    .font(.callout.weight(.medium))
+                    .font(.callout)
                     .foregroundStyle(PVPalette.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 5)
 
-                Rectangle()
-                    .fill(PVPalette.edgeSeparator)
-                    .frame(width: 1, height: 16)
-
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(isHovered || isFocused ? Color.white : PVPalette.accentPrimary)
-                    .frame(width: 21, height: 21)
-                    .background(
-                        isHovered || isFocused
-                            ? PVPalette.accentPrimary
-                            : PVPalette.accentPrimary.opacity(0.12),
-                        in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    )
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(PVPalette.textTertiary)
+                    .frame(width: 12)
             }
-            .padding(.leading, 11)
-            .padding(.trailing, 7)
-            .frame(height: 36)
+            .padding(.leading, 10)
+            .padding(.trailing, 9)
+            .frame(height: 32)
             .contentShape(RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous))
         }
         .menuStyle(.button)

@@ -16,7 +16,7 @@ struct MainWindowView: View {
             HSplitView {
                 if sidebarIsVisible {
                     sidebar
-                        .frame(minWidth: 200, idealWidth: 225, maxWidth: 270)
+                        .frame(minWidth: 188, idealWidth: 214, maxWidth: 250)
                 }
 
                 VStack(spacing: 0) {
@@ -45,44 +45,46 @@ struct MainWindowView: View {
                         ipFilter: $viewModel.ipFilter,
                         stateFilter: $viewModel.stateFilter,
                         stateOptions: viewModel.stateOptions,
-                        activeFilterLabels: viewModel.activeFilterLabels,
+                        activeFilterLabels: sidebarIsVisible
+                            ? viewModel.activeFilterLabels.filter { $0 != viewModel.scope.rawValue }
+                            : viewModel.activeFilterLabels,
+                        showsScopePicker: !sidebarIsVisible,
                         clearFilter: viewModel.clearFilter,
                         reset: viewModel.resetFilters
                     )
 
-                    VSplitView {
-                        tableOrState
-                            .frame(minHeight: 220, idealHeight: 360)
-                            .background(Color.clear)
+                    Group {
+                        if viewModel.selectedItem == nil {
+                            VStack(spacing: 0) {
+                                tableOrState
+                                    .frame(minHeight: 280)
+                                PremiumSeparator()
+                                recordDetail
+                                    .frame(height: 76)
+                            }
+                        } else {
+                            VSplitView {
+                                tableOrState
+                                    .frame(minHeight: 240, idealHeight: 390)
 
-                        RecordDetailView(
-                            item: viewModel.selectedItem,
-                            hasEnded: viewModel.selectionHasEnded,
-                            replacement: viewModel.replacementItem,
-                            allItems: viewModel.allItems,
-                            allRecords: portViewModel.records,
-                            queryDuration: portViewModel.lastQueryDuration,
-                            lastSuccessfulUpdate: portViewModel.lastSuccessfulUpdate,
-                            technicalDetailsExpanded: $technicalDetailsExpanded,
-                            portViewModel: portViewModel,
-                            onSelectItem: viewModel.select,
-                            onDismissEnded: viewModel.clearSelection
-                        )
-                        .frame(minHeight: 200, idealHeight: 260)
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: viewModel.selectedItem?.id)
+                                recordDetail
+                                    .frame(minHeight: 220, idealHeight: 300)
+                            }
+                        }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: PVRadius.panel, style: .continuous))
                     .frostedSurface(.content, radius: PVRadius.panel)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 14)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 10)
+                    .animation(reduceMotion ? nil : PVMotion.selection, value: viewModel.selectedItem?.id)
                 }
             }
         }
         .containerBackground(.clear, for: .window)
         .frame(minWidth: 980, minHeight: 720)
         .toolbar { toolbarContent }
-        .toolbarBackground(.clear, for: .windowToolbar)
-        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        .toolbarBackground(.thickMaterial, for: .windowToolbar)
+        .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
         .onAppear {
             portViewModel.setMainWindowVisible(true)
         }
@@ -140,15 +142,34 @@ struct MainWindowView: View {
             .accessibilityLabel("\(item.rawValue)，\(viewModel.count(for: item)) 条。\(item.explanation)")
         }
         .listStyle(.sidebar)
+        .tint(PVPalette.accentPrimary)
         .scrollContentBackground(.hidden)
         .background {
-            Color.clear
+            Rectangle()
+                .fill(.regularMaterial)
+                .overlay(PVPalette.surfaceGlass.opacity(0.38))
                 .overlay(alignment: .trailing) {
                 Rectangle()
                     .fill(PVPalette.edgeSeparator)
                     .frame(width: 1)
             }
         }
+    }
+
+    private var recordDetail: some View {
+        RecordDetailView(
+            item: viewModel.selectedItem,
+            hasEnded: viewModel.selectionHasEnded,
+            replacement: viewModel.replacementItem,
+            allItems: viewModel.allItems,
+            allRecords: portViewModel.records,
+            queryDuration: portViewModel.lastQueryDuration,
+            lastSuccessfulUpdate: portViewModel.lastSuccessfulUpdate,
+            technicalDetailsExpanded: $technicalDetailsExpanded,
+            portViewModel: portViewModel,
+            onSelectItem: viewModel.select,
+            onDismissEnded: viewModel.clearSelection
+        )
     }
 
     @ToolbarContentBuilder
@@ -282,16 +303,17 @@ private struct OverviewBar: View {
                 .buttonStyle(QuietButtonStyle(size: 30, horizontalPadding: 8))
                 .accessibilityHint("打开端口概念说明")
             }
-            .padding(.leading, 8)
-            .frame(minHeight: 44)
+            .padding(.leading, 6)
+            .frame(minHeight: 34)
         }
         .font(.callout)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frostedSurface(.chrome, radius: PVRadius.panel)
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.regularMaterial)
+        .background(PVPalette.surfaceGlass.opacity(0.30))
+        .overlay(alignment: .bottom) {
+            PremiumSeparator()
+        }
         .popover(item: $help) { topic in
             HelpPopover(title: topic.rawValue, text: topic.explanation)
         }
@@ -335,9 +357,10 @@ private struct MetricRailButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(color)
-                    .frame(width: 30, height: 30)
-                    .background(color.opacity(0.11), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .frame(width: 24, height: 24)
+                    .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: PVRadius.small, style: .continuous))
                 Text(String(value))
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(PVPalette.textPrimary)
@@ -346,8 +369,8 @@ private struct MetricRailButton: View {
                     .foregroundStyle(PVPalette.textSecondary)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 12)
-            .frame(minWidth: 150, minHeight: 44, alignment: .leading)
+            .padding(.horizontal, 8)
+            .frame(minWidth: 132, minHeight: 34, alignment: .leading)
             .background(
                 isHovered ? color.opacity(0.12) : Color.clear,
                 in: RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous)
@@ -375,6 +398,7 @@ private struct FilterBar: View {
     @Binding var stateFilter: String
     let stateOptions: [String]
     let activeFilterLabels: [String]
+    let showsScopePicker: Bool
     let clearFilter: (String) -> Void
     let reset: () -> Void
 
@@ -384,14 +408,16 @@ private struct FilterBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                PremiumPicker(
-                    "活动类型",
-                    symbol: "waveform.path.ecg",
-                    options: SidebarScope.allCases,
-                    selection: $scope,
-                    optionText: \.rawValue
-                )
-                .frame(width: 150)
+                if showsScopePicker {
+                    PremiumPicker(
+                        "活动类型",
+                        symbol: "waveform.path.ecg",
+                        options: SidebarScope.allCases,
+                        selection: $scope,
+                        optionText: \.rawValue
+                    )
+                    .frame(width: 145)
+                }
 
                 PremiumPicker(
                     "访问范围",
@@ -400,7 +426,7 @@ private struct FilterBar: View {
                     selection: $accessFilter,
                     optionText: \.rawValue
                 )
-                .frame(width: 195)
+                .frame(width: 170)
 
                 PremiumPicker(
                     "归属",
@@ -409,7 +435,7 @@ private struct FilterBar: View {
                     selection: $ownerFilter,
                     optionText: \.rawValue
                 )
-                .frame(width: 155)
+                .frame(width: 140)
 
                 if scope == .connections {
                     PremiumPicker(
@@ -419,7 +445,7 @@ private struct FilterBar: View {
                         selection: $connectionPhaseFilter,
                         optionText: \.rawValue
                     )
-                    .frame(width: 155)
+                    .frame(width: 145)
                 }
 
                 Button {
@@ -469,10 +495,12 @@ private struct FilterBar: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frostedSurface(.chrome, radius: PVRadius.panel)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 10)
+        .padding(.vertical, 6)
+        .background(.regularMaterial)
+        .background(PVPalette.surfaceGlass.opacity(0.28))
+        .overlay(alignment: .bottom) {
+            PremiumSeparator()
+        }
         .animation(reduceMotion ? nil : PVMotion.reveal, value: activeFilterLabels)
     }
 }
@@ -637,6 +665,7 @@ private struct PortTable: View {
             .width(min: 230, ideal: 300)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: false))
+        .tint(PVPalette.accentPrimary)
         .scrollContentBackground(.hidden)
         .background(TableGlassBackgroundBridge())
         .accessibilityLabel("应用、本机端口和网络活动列表")
@@ -1838,25 +1867,25 @@ private struct TeachingEmptyDetail: View {
     @State private var showsPortHelp = false
 
     var body: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(PVPalette.surfaceControl)
-                    .frame(width: 48, height: 48)
-                Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.title2)
-                    .foregroundStyle(PVPalette.accentPrimary)
+        HStack(spacing: 12) {
+            Image(systemName: "sidebar.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PVPalette.accentPrimary)
+                .frame(width: 30, height: 30)
+                .background(PVPalette.accentPrimary.opacity(0.10), in: RoundedRectangle(cornerRadius: PVRadius.small))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("选择一项查看详情")
+                    .font(.callout.weight(.semibold))
+                Text("这里会解释应用、端口、连接关系和访问范围。")
+                    .font(.caption)
+                    .foregroundStyle(PVPalette.textSecondary)
             }
-            Text("选择一项，我会解释它正在做什么")
-                .font(.headline)
-            Text("你会看到应用、端口、连接关系和访问范围。专业参数仍可在“技术详情”中查看。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("先了解什么是端口") {
+            Spacer(minLength: 12)
+            Button("了解端口") {
                 showsPortHelp = true
             }
-            .buttonStyle(GlassButtonStyle())
+            .buttonStyle(QuietButtonStyle(size: 28, horizontalPadding: 8))
             .popover(isPresented: $showsPortHelp) {
                 HelpPopover(
                     title: "什么是端口？",
@@ -1864,8 +1893,9 @@ private struct TeachingEmptyDetail: View {
                 )
             }
         }
+        .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(24)
+        .background(PVPalette.surfaceBento.opacity(0.55))
     }
 }
 

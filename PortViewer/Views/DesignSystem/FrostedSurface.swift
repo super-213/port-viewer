@@ -25,18 +25,19 @@ enum FrostedSurfaceKind {
 
     var material: Material {
         switch self {
-        case .chrome: .thinMaterial
-        case .floating: .regularMaterial
-        case .content, .raised: .ultraThinMaterial
+        case .chrome: .regularMaterial
+        case .content: .thickMaterial
+        case .raised: .thinMaterial
+        case .floating: .ultraThickMaterial
         }
     }
 
     var tintOpacity: Double {
         switch self {
-        case .chrome: 0.64
-        case .content: 0.78
-        case .raised: 0.58
-        case .floating: 0.70
+        case .chrome: 0.36
+        case .content: 0.30
+        case .raised: 0.24
+        case .floating: 0.38
         }
     }
 }
@@ -48,26 +49,29 @@ struct PremiumCanvas: View {
         ZStack {
             LinearGradient(
                 colors: [PVPalette.canvasTop, PVPalette.canvasBase, PVPalette.canvasBottom],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: .top,
+                endPoint: .bottom
             )
 
             if !reduceTransparency {
-                RadialGradient(
-                    colors: [Color.white.opacity(0.075), .clear],
-                    center: UnitPoint(x: 0.22, y: 0.02),
-                    startRadius: 0,
-                    endRadius: 760
-                )
-                RadialGradient(
-                    colors: [Color.black.opacity(0.11), .clear],
-                    center: UnitPoint(x: 0.84, y: 0.98),
-                    startRadius: 0,
-                    endRadius: 900
-                )
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                PVPalette.canvasBase.opacity(0.22)
+                Circle()
+                    .fill(PVPalette.ambientBlue.opacity(0.24))
+                    .frame(width: 560, height: 560)
+                    .blur(radius: 110)
+                    .offset(x: 420, y: -300)
+
+                RoundedRectangle(cornerRadius: 180, style: .continuous)
+                    .fill(PVPalette.ambientIndigo.opacity(0.18))
+                    .frame(width: 640, height: 360)
+                    .rotationEffect(.degrees(-12))
+                    .blur(radius: 120)
+                    .offset(x: -360, y: 330)
+
+                Circle()
+                    .fill(PVPalette.ambientMint.opacity(0.11))
+                    .frame(width: 420, height: 420)
+                    .blur(radius: 100)
+                    .offset(x: 340, y: 380)
             }
         }
         .ignoresSafeArea()
@@ -98,15 +102,29 @@ private struct FrostedSurfaceModifier: ViewModifier {
             }
             .overlay {
                 if showsOuterEdge {
-                    shape.strokeBorder(outerEdge, lineWidth: 1)
+                    shape.strokeBorder(outerEdge, lineWidth: 0.75)
+                }
+            }
+            .overlay {
+                if showsOuterEdge && !reduceTransparency {
+                    shape
+                        .inset(by: 1)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.24), Color.white.opacity(0.025)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.5
+                        )
                 }
             }
             .shadow(
-                color: kind == .floating
-                    ? PVPalette.shadowAmbient.opacity(0.46 * ambientOpacity)
+                color: kind == .floating || kind == .content
+                    ? PVPalette.shadowAmbient.opacity((kind == .floating ? 0.34 : 0.13) * ambientOpacity)
                     : .clear,
-                radius: 18,
-                y: 10
+                radius: kind == .floating ? 22 : 12,
+                y: kind == .floating ? 12 : 5
             )
     }
 }
@@ -133,14 +151,19 @@ private struct PremiumControlSurfaceModifier: ViewModifier {
         content
             .background {
                 shape
-                    .fill(reduceTransparency ? PVPalette.surfaceRaised : fill)
+                    .fill(
+                        reduceTransparency
+                            ? AnyShapeStyle(PVPalette.surfaceRaised)
+                            : AnyShapeStyle(.thinMaterial)
+                    )
+                    .overlay { shape.fill(fill) }
                     .overlay { shape.fill(isSelected ? accent.opacity(0.11) : .clear) }
                     .overlay { shape.fill(pressedTint) }
             }
             .overlay {
                 shape.strokeBorder(
-                    edge.opacity(contrast == .increased ? 1 : 0.66),
-                    lineWidth: contrast == .increased || isSelected ? 1.2 : 1
+                    edge.opacity(contrast == .increased ? 1 : 0.72),
+                    lineWidth: contrast == .increased || isSelected ? 1 : 0.75
                 )
             }
             .overlay {
@@ -155,6 +178,25 @@ private struct PremiumControlSurfaceModifier: ViewModifier {
                         .stroke(accent.opacity(0.82), lineWidth: 2)
                 }
             }
+            .overlay {
+                if !reduceTransparency {
+                    shape
+                        .inset(by: 1)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.20), .clear],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.5
+                        )
+                }
+            }
+            .shadow(
+                color: raised ? PVPalette.shadowAmbient.opacity(isPressed ? 0.05 : 0.11) : .clear,
+                radius: raised ? 5 : 0,
+                y: raised ? 2 : 0
+            )
             .opacity(isEnabled ? (isPressed ? 0.88 : 1) : 0.52)
     }
 }
