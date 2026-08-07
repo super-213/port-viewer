@@ -383,41 +383,24 @@ private struct ActivityOverview: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Text("活动概览")
-                        .font(.headline)
-                        .foregroundStyle(PVPalette.textPrimary)
-
-                    if isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityLabel("正在刷新")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: PVSpacing.two) {
+                        overviewHeading
+                        Spacer(minLength: PVSpacing.three)
+                        timeRangePicker
+                        updateStatus
+                        overviewHelpButton
                     }
 
-                    Spacer(minLength: 12)
-
-                    Picker("趋势时间范围", selection: $selectedTimeRange) {
-                        ForEach(OverviewTimeRange.allCases) { range in
-                            Text(L10n.string(range.title)).tag(range)
+                    VStack(alignment: .leading, spacing: PVSpacing.two) {
+                        HStack(spacing: PVSpacing.two) {
+                            overviewHeading
+                            Spacer(minLength: PVSpacing.three)
+                            updateStatus
+                            overviewHelpButton
                         }
+                        timeRangePicker
                     }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 172)
-                    .help("选择趋势图显示的时间范围")
-
-                    Text(updateDescription)
-                        .font(.callout)
-                        .foregroundStyle(PVPalette.textSecondary)
-
-                    Button {
-                        showsHelp = true
-                    } label: {
-                        Image(systemName: "info.circle")
-                    }
-                    .buttonStyle(QuietButtonStyle(size: 28, horizontalPadding: 0))
-                    .help("查看统计口径")
-                    .accessibilityLabel("查看统计口径")
                 }
 
                 HStack(spacing: 8) {
@@ -523,6 +506,50 @@ private struct ActivityOverview: View {
                 OverviewAccessPanel(items: snapshot.accessBreakdown, latest: filteredHistory.last)
             }
         }
+    }
+
+    private var overviewHeading: some View {
+        HStack(spacing: PVSpacing.two) {
+            Text("活动概览")
+                .font(.headline)
+                .foregroundStyle(PVPalette.textPrimary)
+
+            if isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("正在刷新")
+            }
+        }
+    }
+
+    private var timeRangePicker: some View {
+        Picker("趋势时间范围", selection: $selectedTimeRange) {
+            ForEach(OverviewTimeRange.allCases) { range in
+                Text(L10n.string(range.title)).tag(range)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .fixedSize(horizontal: true, vertical: false)
+        .help("选择趋势图显示的时间范围")
+    }
+
+    private var updateStatus: some View {
+        Text(updateDescription)
+            .font(.callout)
+            .foregroundStyle(PVPalette.textSecondary)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var overviewHelpButton: some View {
+        Button {
+            showsHelp = true
+        } label: {
+            Image(systemName: "info.circle")
+        }
+        .buttonStyle(QuietButtonStyle(size: 28, horizontalPadding: 0))
+        .help("查看统计口径")
+        .accessibilityLabel("查看统计口径")
     }
 
     private var filteredHistory: [ActivityHistoryPoint] {
