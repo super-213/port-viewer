@@ -75,4 +75,52 @@ final class PageViewModelTests: XCTestCase {
         XCTAssertEqual(menu.displayedRecords.map(\.processName), ["special-server"])
         XCTAssertEqual(main.searchText, "", "页面级搜索状态必须互相独立")
     }
+
+    func testOverviewSnapshotBuildsDashboardBreakdownsAndProcessRanking() async {
+        let localListener = PortTestFixtures.record(processName: "node", pid: 10, localPort: 3_000)
+        let connection = PortTestFixtures.record(
+            processName: "node",
+            pid: 10,
+            fileDescriptor: "11",
+            localPort: 51_000,
+            remoteAddress: "10.0.0.8",
+            remotePort: 443,
+            state: "ESTABLISHED"
+        )
+        let networkListener = PortTestFixtures.record(
+            processName: "postgres",
+            pid: 20,
+            localAddress: "*",
+            localPort: 5_432
+        )
+        let udp = PortTestFixtures.record(
+            processName: "mDNSResponder",
+            pid: 30,
+            fileDescriptor: "12",
+            ipVersion: .v6,
+            transport: .udp,
+            localAddress: "*",
+            localPort: 5_353,
+            state: nil
+        )
+        let query = StubPortQueryService(responses: [
+            .snapshot(PortTestFixtures.snapshot(records: [localListener, connection, networkListener, udp]))
+        ])
+        let root = PortTestFixtures.viewModel(queryService: query)
+        let viewModel = MainWindowViewModel(portViewModel: root)
+
+        await root.refreshForTesting()
+        let overview = viewModel.overviewSnapshot
+
+        XCTAssertEqual(overview.recordCount, 4)
+        XCTAssertEqual(overview.waitingCount, 2)
+        XCTAssertEqual(overview.connectionCount, 1)
+        XCTAssertEqual(overview.networkPossibleCount, 1)
+        XCTAssertEqual(overview.protocolBreakdown.first { $0.kind == .udp }?.count, 1)
+        XCTAssertEqual(overview.ipBreakdown.first { $0.kind == .ipv6 }?.count, 1)
+        XCTAssertEqual(overview.accessBreakdown.first { $0.kind == .localOnly }?.count, 1)
+        XCTAssertEqual(overview.accessBreakdown.first { $0.kind == .networkPossible }?.count, 1)
+        XCTAssertEqual(overview.topProcesses.first?.processName, "node")
+        XCTAssertEqual(overview.topProcesses.first?.recordCount, 2)
+    }
 }

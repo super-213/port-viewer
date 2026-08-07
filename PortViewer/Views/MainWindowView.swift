@@ -1,4 +1,5 @@
 import AppKit
+import Charts
 import SwiftUI
 
 struct MainWindowView: View {
@@ -140,16 +141,14 @@ struct MainWindowView: View {
         switch selectedPage {
         case .overview:
             ActivityOverview(
-                totalCount: viewModel.count(for: .all),
-                waitingCount: viewModel.count(for: .waiting),
-                connectionCount: viewModel.count(for: .connections),
-                otherCount: viewModel.count(for: .other),
+                snapshot: viewModel.overviewSnapshot,
+                history: portViewModel.activityHistory,
                 buckets: viewModel.portMapBuckets,
-                itemCount: viewModel.allItems.count,
                 selectedID: viewModel.selectedID,
                 lastSuccessfulUpdate: portViewModel.lastSuccessfulUpdate,
                 isRefreshing: portViewModel.isRefreshing,
                 onSelectScope: showActivity,
+                onSelectNetworkPossible: showNetworkPossibleActivity,
                 onSelectItem: showActivity
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -213,6 +212,13 @@ struct MainWindowView: View {
     private func showActivity(_ item: ReadablePortItem) {
         showActivity(.all)
         viewModel.select(item)
+    }
+
+    private func showNetworkPossibleActivity() {
+        viewModel.resetFilters()
+        viewModel.scope = .waiting
+        viewModel.accessFilter = .networkPossible
+        selectedPage = .activity(.waiting)
     }
 
     private var recordDetail: some View {
@@ -320,65 +326,108 @@ struct MainWindowView: View {
 }
 
 private struct ActivityOverview: View {
-    let totalCount: Int
-    let waitingCount: Int
-    let connectionCount: Int
-    let otherCount: Int
+    let snapshot: OverviewSnapshot
+    let history: [ActivityHistoryPoint]
     let buckets: [PortMapBucket]
-    let itemCount: Int
     let selectedID: ReadablePortItem.ID?
     let lastSuccessfulUpdate: Date?
     let isRefreshing: Bool
     let onSelectScope: (SidebarScope) -> Void
+    let onSelectNetworkPossible: () -> Void
     let onSelectItem: (ReadablePortItem) -> Void
 
     @State private var showsHelp = false
+    @State private var selectedTimeRange = OverviewTimeRange.fifteenMinutes
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text("活动概览")
-                    .font(.headline)
-                    .foregroundStyle(PVPalette.textPrimary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Text("活动概览")
+                        .font(.headline)
+                        .foregroundStyle(PVPalette.textPrimary)
 
-                if isRefreshing {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("正在刷新")
+                    if isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("正在刷新")
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Picker("趋势时间范围", selection: $selectedTimeRange) {
+                        ForEach(OverviewTimeRange.allCases) { range in
+                            Text(range.title).tag(range)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 172)
+                    .help("选择趋势图显示的时间范围")
+
+                    Text(updateDescription)
+                        .font(.callout)
+                        .foregroundStyle(PVPalette.textSecondary)
+
+                    Button {
+                        showsHelp = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .buttonStyle(QuietButtonStyle(size: 28, horizontalPadding: 0))
+                    .help("查看统计口径")
+                    .accessibilityLabel("查看统计口径")
                 }
 
-                Spacer(minLength: 12)
-
-                Text(updateDescription)
-                    .font(.callout)
-                    .foregroundStyle(PVPalette.textSecondary)
-
-                Button {
-                    showsHelp = true
-                } label: {
-                    Image(systemName: "info.circle")
+                HStack(spacing: 8) {
+                    metric(
+                        title: "当前活动",
+                        value: snapshot.itemCount,
+                        detail: "\(snapshot.recordCount) 条系统记录",
+                        symbol: "list.bullet",
+                        color: PVPalette.accentPrimary,
+                        help: "合并同一服务的重复底层记录后得到的活动项目数"
+                    ) { onSelectScope(.all) }
+                    metric(
+                        title: "等待连接",
+                        value: snapshot.waitingCount,
+                        detail: "监听记录",
+                        symbol: SidebarScope.waiting.symbol,
+                        color: PVPalette.waiting,
+                        help: SidebarScope.waiting.explanation
+                    ) { onSelectScope(.waiting) }
+                    metric(
+                        title: "连接活动",
+                        value: snapshot.connectionCount,
+                        detail: "TCP 远端连接",
+                        symbol: SidebarScope.connections.symbol,
+                        color: PVPalette.connected,
+                        help: SidebarScope.connections.explanation
+                    ) { onSelectScope(.connections) }
+                    metric(
+                        title: "可能可访问",
+                        value: snapshot.networkPossibleCount,
+                        detail: "非本机监听",
+                        symbol: "network",
+                        color: PVPalette.warning,
+                        help: "监听地址不是本机回环地址；同一网络设备可能具备访问条件"
+                    ) { onSelectNetworkPossible() }
                 }
-                .buttonStyle(QuietButtonStyle(size: 28, horizontalPadding: 0))
-                .help("查看统计口径")
-                .accessibilityLabel("查看统计口径")
+
+                dashboardPrimaryRow
+                dashboardSecondaryRow
+
+                PremiumSeparator()
+
+                PortActivityMap(
+                    buckets: buckets,
+                    itemCount: snapshot.itemCount,
+                    selectedID: selectedID,
+                    onSelect: onSelectItem
+                )
             }
-
-            HStack(spacing: 8) {
-                metric(.all, value: totalCount, color: PVPalette.accentPrimary)
-                metric(.waiting, value: waitingCount, color: PVPalette.waiting)
-                metric(.connections, value: connectionCount, color: PVPalette.connected)
-                metric(.other, value: otherCount, color: PVPalette.neutral)
-            }
-
-            PremiumSeparator()
-
-            PortActivityMap(
-                buckets: buckets,
-                itemCount: itemCount,
-                selectedID: selectedID,
-                onSelect: onSelectItem
-            )
+            .padding(14)
         }
-        .padding(14)
         .frostedSurface(.chrome, radius: PVRadius.panel)
         .padding(.horizontal, 10)
         .padding(.top, 10)
@@ -390,7 +439,7 @@ private struct ActivityOverview: View {
                 helpRow(.waiting)
                 helpRow(.connections)
                 helpRow(.other)
-                Text("数字来自系统返回的底层网络记录，用于观察活动规模，不表示风险高低。")
+                Text("“当前活动”按易读项目计数，其余分布按系统返回的底层网络记录计数。趋势只保存在本次运行期间，退出应用后清空。")
                     .font(.callout)
                     .foregroundStyle(PVPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -401,17 +450,65 @@ private struct ActivityOverview: View {
         }
     }
 
-    private func metric(_ item: SidebarScope, value: Int, color: Color) -> some View {
+    @ViewBuilder
+    private var dashboardPrimaryRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 10) {
+                OverviewTrendPanel(history: filteredHistory)
+                    .frame(minWidth: 400, maxWidth: .infinity)
+                OverviewCompositionPanel(snapshot: snapshot)
+                    .frame(width: 300)
+            }
+
+            VStack(spacing: 10) {
+                OverviewTrendPanel(history: filteredHistory)
+                OverviewCompositionPanel(snapshot: snapshot)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var dashboardSecondaryRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 10) {
+                OverviewTopProcessesPanel(processes: snapshot.topProcesses)
+                    .frame(minWidth: 400, maxWidth: .infinity)
+                OverviewAccessPanel(items: snapshot.accessBreakdown, latest: filteredHistory.last)
+                    .frame(width: 300)
+            }
+
+            VStack(spacing: 10) {
+                OverviewTopProcessesPanel(processes: snapshot.topProcesses)
+                OverviewAccessPanel(items: snapshot.accessBreakdown, latest: filteredHistory.last)
+            }
+        }
+    }
+
+    private var filteredHistory: [ActivityHistoryPoint] {
+        guard let latestDate = history.last?.timestamp else { return [] }
+        let cutoff = latestDate.addingTimeInterval(-selectedTimeRange.seconds)
+        return history.filter { $0.timestamp >= cutoff }
+    }
+
+    private func metric(
+        title: String,
+        value: Int,
+        detail: String,
+        symbol: String,
+        color: Color,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
         OverviewMetricButton(
-            title: item.rawValue,
+            title: title,
             value: value,
-            symbol: item.symbol,
+            detail: detail,
+            symbol: symbol,
             color: color,
             isSelected: false,
-            help: item.explanation
-        ) {
-            onSelectScope(item)
-        }
+            help: help,
+            action: action
+        )
     }
 
     private var updateDescription: String {
@@ -438,6 +535,381 @@ private struct ActivityOverview: View {
     }
 }
 
+private enum OverviewTimeRange: TimeInterval, CaseIterable, Identifiable {
+    case fiveMinutes = 300
+    case fifteenMinutes = 900
+    case thirtyMinutes = 1_800
+
+    var id: Self { self }
+    var seconds: TimeInterval { rawValue }
+
+    var title: String {
+        switch self {
+        case .fiveMinutes: return "5 分钟"
+        case .fifteenMinutes: return "15 分钟"
+        case .thirtyMinutes: return "30 分钟"
+        }
+    }
+}
+
+private struct OverviewPanel<Content: View>: View {
+    let title: String
+    let symbol: String
+    let subtitle: String?
+    @ViewBuilder let content: Content
+
+    init(
+        title: String,
+        symbol: String,
+        subtitle: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.symbol = symbol
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label(title, systemImage: symbol)
+                    .font(.headline)
+                    .foregroundStyle(PVPalette.textPrimary)
+                Spacer(minLength: 8)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(PVPalette.textTertiary)
+                }
+            }
+            content
+        }
+        .padding(12)
+        .background(PVPalette.surfaceControl, in: RoundedRectangle(cornerRadius: PVRadius.node, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: PVRadius.node, style: .continuous)
+                .strokeBorder(PVPalette.edgeOuter, lineWidth: 1)
+        }
+    }
+}
+
+private struct OverviewTrendPanel: View {
+    let history: [ActivityHistoryPoint]
+
+    var body: some View {
+        OverviewPanel(
+            title: "活动趋势",
+            symbol: "chart.xyaxis.line",
+            subtitle: history.count > 1 ? "\(history.count) 个采样点" : "正在积累样本"
+        ) {
+            HStack(spacing: 14) {
+                trendLegend("全部", color: PVPalette.accentPrimary)
+                trendLegend("等待", color: PVPalette.waiting)
+                trendLegend("已建立", color: PVPalette.connected)
+                Spacer()
+            }
+
+            if history.isEmpty {
+                ContentUnavailableView(
+                    "等待首次采样",
+                    systemImage: "chart.xyaxis.line",
+                    description: Text("完成一次查询后会在这里显示会话内趋势。")
+                )
+                .frame(maxWidth: .infinity, minHeight: 170)
+            } else {
+                Chart(history) { point in
+                    LineMark(
+                        x: .value("时间", point.timestamp),
+                        y: .value("全部", point.totalCount),
+                        series: .value("序列", "全部")
+                    )
+                    .foregroundStyle(PVPalette.accentPrimary)
+                    .lineStyle(StrokeStyle(lineWidth: 2.1, lineCap: .round, lineJoin: .round))
+                    .interpolationMethod(.catmullRom)
+
+                    LineMark(
+                        x: .value("时间", point.timestamp),
+                        y: .value("等待", point.waitingCount),
+                        series: .value("序列", "等待")
+                    )
+                    .foregroundStyle(PVPalette.waiting)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    .interpolationMethod(.catmullRom)
+
+                    LineMark(
+                        x: .value("时间", point.timestamp),
+                        y: .value("已建立", point.connectedCount),
+                        series: .value("序列", "已建立")
+                    )
+                    .foregroundStyle(PVPalette.connected)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    .interpolationMethod(.catmullRom)
+
+                    if history.count == 1 {
+                        PointMark(
+                            x: .value("时间", point.timestamp),
+                            y: .value("全部", point.totalCount)
+                        )
+                        .foregroundStyle(PVPalette.accentPrimary)
+                        .symbolSize(34)
+
+                        PointMark(
+                            x: .value("时间", point.timestamp),
+                            y: .value("等待", point.waitingCount)
+                        )
+                        .foregroundStyle(PVPalette.waiting)
+                        .symbolSize(26)
+
+                        PointMark(
+                            x: .value("时间", point.timestamp),
+                            y: .value("已建立", point.connectedCount)
+                        )
+                        .foregroundStyle(PVPalette.connected)
+                        .symbolSize(26)
+                    }
+                }
+                .chartLegend(.hidden)
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                            .foregroundStyle(PVPalette.edgeSeparator)
+                        AxisValueLabel(format: .dateTime.hour().minute())
+                            .foregroundStyle(PVPalette.textTertiary)
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { _ in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                            .foregroundStyle(PVPalette.edgeSeparator)
+                        AxisValueLabel()
+                            .foregroundStyle(PVPalette.textTertiary)
+                    }
+                }
+                .frame(minHeight: 170)
+                .accessibilityLabel(trendAccessibilityLabel)
+            }
+        }
+        .frame(minHeight: 250, alignment: .top)
+    }
+
+    private func trendLegend(_ title: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Capsule().fill(color).frame(width: 14, height: 3)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(PVPalette.textSecondary)
+        }
+    }
+
+    private var trendAccessibilityLabel: String {
+        guard let latest = history.last else { return "尚无活动趋势数据" }
+        return "活动趋势，最新共有 \(latest.totalCount) 条记录，等待连接 \(latest.waitingCount) 条，连接已建立 \(latest.connectedCount) 条"
+    }
+}
+
+private struct OverviewCompositionPanel: View {
+    let snapshot: OverviewSnapshot
+
+    var body: some View {
+        OverviewPanel(title: "当前构成", symbol: "chart.bar.fill", subtitle: "系统记录") {
+            breakdown(title: "活动状态", items: snapshot.activityBreakdown)
+            PremiumSeparator()
+            breakdown(title: "传输协议", items: snapshot.protocolBreakdown)
+            PremiumSeparator()
+            breakdown(title: "地址格式", items: snapshot.ipBreakdown)
+        }
+        .frame(minHeight: 250, alignment: .top)
+    }
+
+    private func breakdown(title: String, items: [OverviewBreakdownItem]) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(PVPalette.textSecondary)
+            OverviewStackedBar(items: items)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 6)], alignment: .leading, spacing: 5) {
+                ForEach(items.filter { $0.count > 0 }) { item in
+                    OverviewLegendItem(item: item)
+                }
+            }
+        }
+    }
+}
+
+private struct OverviewTopProcessesPanel: View {
+    let processes: [OverviewProcessUsage]
+
+    var body: some View {
+        OverviewPanel(title: "活动最多的应用", symbol: "chart.bar.xaxis", subtitle: "前 5 名") {
+            if processes.isEmpty {
+                ContentUnavailableView("暂无应用活动", systemImage: "app.dashed")
+                    .frame(maxWidth: .infinity, minHeight: 160)
+            } else {
+                Chart(Array(processes.reversed())) { process in
+                    BarMark(
+                        x: .value("系统记录", process.recordCount),
+                        y: .value("应用", process.processName)
+                    )
+                    .foregroundStyle(PVPalette.accentPrimary.gradient)
+                    .cornerRadius(4)
+                    .annotation(position: .trailing, alignment: .leading) {
+                        Text(String(process.recordCount))
+                            .font(.caption.monospacedDigit().weight(.medium))
+                            .foregroundStyle(PVPalette.textSecondary)
+                    }
+                }
+                .chartLegend(.hidden)
+                .chartXAxis(.hidden)
+                .chartYAxis {
+                    AxisMarks(position: .leading) { _ in
+                        AxisValueLabel()
+                            .foregroundStyle(PVPalette.textSecondary)
+                    }
+                }
+                .frame(minHeight: 170)
+                .accessibilityLabel(processAccessibilityLabel)
+            }
+        }
+        .frame(minHeight: 226, alignment: .top)
+    }
+
+    private var processAccessibilityLabel: String {
+        let values = processes.map { "\($0.processName) \($0.recordCount) 条" }.joined(separator: "，")
+        return "活动最多的应用：\(values)"
+    }
+}
+
+private struct OverviewAccessPanel: View {
+    let items: [OverviewBreakdownItem]
+    let latest: ActivityHistoryPoint?
+
+    var body: some View {
+        OverviewPanel(title: "监听访问范围", symbol: "network", subtitle: "仅基于监听地址") {
+            OverviewStackedBar(items: items)
+                .frame(height: 12)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(items) { item in
+                    OverviewLegendItem(item: item, expands: true)
+                }
+            }
+
+            PremiumSeparator()
+
+            HStack(spacing: 8) {
+                changeMetric(
+                    title: "本轮新增",
+                    value: latest?.appearedCount ?? 0,
+                    symbol: "plus",
+                    color: PVPalette.waiting
+                )
+                changeMetric(
+                    title: "本轮结束",
+                    value: latest?.endedCount ?? 0,
+                    symbol: "minus",
+                    color: PVPalette.neutral
+                )
+            }
+
+            if let latest {
+                Text("最近查询耗时 \(latest.queryDuration.formatted(.number.precision(.fractionLength(2)))) 秒")
+                    .font(.caption)
+                    .foregroundStyle(PVPalette.textTertiary)
+                    .monospacedDigit()
+            }
+        }
+        .frame(minHeight: 226, alignment: .top)
+    }
+
+    private func changeMetric(title: String, value: Int, symbol: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(String(value))
+                    .font(.callout.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(PVPalette.textPrimary)
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(PVPalette.textTertiary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(7)
+        .background(color.opacity(0.075), in: RoundedRectangle(cornerRadius: PVRadius.small, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct OverviewStackedBar: View {
+    let items: [OverviewBreakdownItem]
+
+    private var visibleItems: [OverviewBreakdownItem] { items.filter { $0.count > 0 } }
+    private var total: Int { visibleItems.reduce(0) { $0 + $1.count } }
+
+    var body: some View {
+        GeometryReader { geometry in
+            if total == 0 {
+                Capsule()
+                    .fill(PVPalette.surfaceRaised.opacity(0.65))
+                    .overlay { Capsule().strokeBorder(PVPalette.edgeOuter, lineWidth: 1) }
+            } else {
+                let spacing = CGFloat(max(visibleItems.count - 1, 0)) * 2
+                HStack(spacing: 2) {
+                    ForEach(visibleItems) { item in
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(item.kind.color)
+                            .frame(width: max(3, (geometry.size.width - spacing) * CGFloat(item.count) / CGFloat(total)))
+                    }
+                }
+            }
+        }
+        .frame(height: 10)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        visibleItems.map { "\($0.kind.title) \($0.count) 条" }.joined(separator: "，")
+    }
+}
+
+private struct OverviewLegendItem: View {
+    let item: OverviewBreakdownItem
+    var expands = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(item.kind.color)
+                .frame(width: 9, height: 9)
+            Text(item.kind.title)
+                .font(.caption)
+                .foregroundStyle(PVPalette.textSecondary)
+                .lineLimit(1)
+            if expands { Spacer(minLength: 4) }
+            Text(String(item.count))
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(PVPalette.textPrimary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private extension OverviewBreakdownKind {
+    var color: Color {
+        switch self {
+        case .waiting, .localOnly: return PVPalette.waiting
+        case .connected, .tcp, .ipv4: return PVPalette.connected
+        case .transitioning, .networkPossible: return PVPalette.warning
+        case .udp, .ipv6: return PVPalette.accentIndigo
+        case .other, .unknownIP, .unknownAccess: return PVPalette.neutral
+        }
+    }
+}
+
 private enum MainSidebarPage: Hashable {
     case overview
     case activity(SidebarScope)
@@ -446,6 +918,7 @@ private enum MainSidebarPage: Hashable {
 private struct OverviewMetricButton: View {
     let title: String
     let value: Int
+    let detail: String
     let symbol: String
     let color: Color
     let isSelected: Bool
@@ -466,6 +939,11 @@ private struct OverviewMetricButton: View {
                         .font(.callout.weight(.medium))
                         .foregroundStyle(isSelected ? color : PVPalette.textSecondary)
                         .lineLimit(1)
+
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(PVPalette.textTertiary)
+                        .lineLimit(1)
                 }
 
                 Spacer(minLength: 4)
@@ -478,7 +956,7 @@ private struct OverviewMetricButton: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
             .premiumControlSurface(
                 radius: PVRadius.node,
                 isHovered: isHovered,
@@ -493,7 +971,7 @@ private struct OverviewMetricButton: View {
             isHovered = hovering
         }
         .help(help)
-        .accessibilityLabel("\(title)，\(value) 条")
+        .accessibilityLabel("\(title)，\(value)，\(detail)")
         .accessibilityHint(isSelected ? "当前正在显示此类活动" : "筛选并显示此类活动")
     }
 }

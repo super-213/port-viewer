@@ -46,6 +46,20 @@ struct AdaptiveRefreshPolicy {
     }
 }
 
+struct ActivityHistoryPoint: Identifiable, Equatable, Sendable {
+    let timestamp: Date
+    let totalCount: Int
+    let waitingCount: Int
+    let connectedCount: Int
+    let transitioningCount: Int
+    let otherCount: Int
+    let appearedCount: Int
+    let endedCount: Int
+    let queryDuration: TimeInterval
+
+    var id: Date { timestamp }
+}
+
 struct TerminationPrompt: Identifiable, Equatable {
     enum Stage: Equatable {
         case standard
@@ -100,6 +114,7 @@ final class PortViewModel {
     private(set) var isRefreshing = false
     private(set) var isPaused = false
     private(set) var recentListenerActivity: [ListenerActivityKey: RecentPortActivityChange] = [:]
+    private(set) var activityHistory: [ActivityHistoryPoint] = []
     var terminationPrompt: TerminationPrompt?
     var feedback: OperationFeedback?
 
@@ -126,7 +141,10 @@ final class PortViewModel {
         remoteEndpointsByListener: [:]
     )
     @ObservationIgnored private var hasListenerActivityBaseline = false
+    @ObservationIgnored private var previousCompleteRecordIDs: Set<String>?
     @ObservationIgnored private let activityFeedbackLifetime: TimeInterval = 5
+    @ObservationIgnored private let activityHistoryLifetime: TimeInterval = 30 * 60
+    @ObservationIgnored private let activityHistoryCapacity = 600
 
     init(
         queryService: any PortQuerying,
@@ -489,6 +507,7 @@ final class PortViewModel {
 
     @discardableResult
     private func apply(_ snapshot: PortSnapshot) -> Bool {
+        recordActivityHistory(from: snapshot)
         updateListenerActivity(with: snapshot)
         let recordsChanged = !records.elementsEqual(
             snapshot.records,
@@ -529,6 +548,46 @@ final class PortViewModel {
             state = nextState
         }
         return recordsChanged
+    }
+
+    private func recordActivityHistory(from snapshot: PortSnapshot) {
+        guard !snapshot.isPartial else { return }
+
+        let recordIDs = Set(snapshot.records.map(\.id))
+        let appearedCount: Int
+        let endedCount: Int
+        if let previousCompleteRecordIDs {
+            appearedCount = recordIDs.subtracting(previousCompleteRecordIDs).count
+            endedCount = previousCompleteRecordIDs.subtracting(recordIDs).count
+        } else {
+            appearedCount = 0
+            endedCount = 0
+        }
+        self.previousCompleteRecordIDs = recordIDs
+
+        let point = ActivityHistoryPoint(
+            timestamp: snapshot.capturedAt,
+            totalCount: snapshot.records.count,
+            waitingCount: snapshot.records.count { $0.activityKind == .waiting },
+            connectedCount: snapshot.records.count { $0.activityKind == .connected },
+            transitioningCount: snapshot.records.count { $0.activityKind == .transitioning },
+            otherCount: snapshot.records.count { $0.activityKind == .other },
+            appearedCount: appearedCount,
+            endedCount: endedCount,
+            queryDuration: snapshot.duration
+        )
+
+        if activityHistory.last?.timestamp == point.timestamp {
+            activityHistory[activityHistory.count - 1] = point
+        } else {
+            activityHistory.append(point)
+        }
+
+        let cutoff = snapshot.capturedAt.addingTimeInterval(-activityHistoryLifetime)
+        activityHistory.removeAll { $0.timestamp < cutoff }
+        if activityHistory.count > activityHistoryCapacity {
+            activityHistory.removeFirst(activityHistory.count - activityHistoryCapacity)
+        }
     }
 
     private func updateListenerActivity(with snapshot: PortSnapshot) {

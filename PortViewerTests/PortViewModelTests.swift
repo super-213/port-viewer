@@ -188,6 +188,47 @@ final class PortViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.recentListenerActivity.isEmpty)
     }
 
+    func testActivityHistoryTracksCompleteSnapshotsAndConnectionChurn() async {
+        let listener = PortTestFixtures.record()
+        let connection = PortTestFixtures.record(
+            fileDescriptor: "11",
+            localPort: 51_000,
+            remoteAddress: "10.0.0.2",
+            remotePort: 443,
+            state: "ESTABLISHED"
+        )
+        let query = StubPortQueryService(responses: [
+            .snapshot(PortTestFixtures.snapshot(
+                records: [listener],
+                capturedAt: Date(timeIntervalSince1970: 100),
+                duration: 0.1
+            )),
+            .snapshot(PortTestFixtures.snapshot(
+                records: [listener, connection],
+                capturedAt: Date(timeIntervalSince1970: 103),
+                duration: 0.2
+            )),
+            .snapshot(PortTestFixtures.snapshot(
+                records: [],
+                capturedAt: Date(timeIntervalSince1970: 106),
+                isPartial: true
+            ))
+        ])
+        let viewModel = PortTestFixtures.viewModel(queryService: query)
+
+        await viewModel.refreshForTesting()
+        await viewModel.refreshForTesting()
+        await viewModel.refreshForTesting()
+
+        XCTAssertEqual(viewModel.activityHistory.count, 2, "部分快照不能进入趋势基线")
+        XCTAssertEqual(viewModel.activityHistory[0].totalCount, 1)
+        XCTAssertEqual(viewModel.activityHistory[1].totalCount, 2)
+        XCTAssertEqual(viewModel.activityHistory[1].connectedCount, 1)
+        XCTAssertEqual(viewModel.activityHistory[1].appearedCount, 1)
+        XCTAssertEqual(viewModel.activityHistory[1].endedCount, 0)
+        XCTAssertEqual(viewModel.activityHistory[1].queryDuration, 0.2)
+    }
+
     func testTerminationPreparationRejectsOtherUserAndPartialSafetySnapshot() async {
         let otherUserRecord = PortTestFixtures.record(user: "another-user")
         let query = StubPortQueryService(responses: [

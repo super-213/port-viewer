@@ -108,6 +108,120 @@ enum IPFilter: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
+enum OverviewBreakdownKind: String, Identifiable, Sendable {
+    case waiting
+    case connected
+    case transitioning
+    case other
+    case tcp
+    case udp
+    case ipv4
+    case ipv6
+    case unknownIP
+    case localOnly
+    case networkPossible
+    case unknownAccess
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .waiting: return "等待连接"
+        case .connected: return "连接已建立"
+        case .transitioning: return "正在建立/关闭"
+        case .other: return "其他活动"
+        case .tcp: return "TCP"
+        case .udp: return "UDP"
+        case .ipv4: return "IPv4"
+        case .ipv6: return "IPv6"
+        case .unknownIP: return "未知格式"
+        case .localOnly: return "仅这台 Mac"
+        case .networkPossible: return "可能被其他设备访问"
+        case .unknownAccess: return "范围不确定"
+        }
+    }
+}
+
+struct OverviewBreakdownItem: Identifiable, Equatable, Sendable {
+    let kind: OverviewBreakdownKind
+    let count: Int
+
+    var id: OverviewBreakdownKind { kind }
+}
+
+struct OverviewProcessUsage: Identifiable, Equatable, Sendable {
+    let processName: String
+    let recordCount: Int
+    let listeningCount: Int
+    let connectionCount: Int
+
+    var id: String { processName }
+}
+
+struct OverviewSnapshot: Equatable, Sendable {
+    let recordCount: Int
+    let itemCount: Int
+    let waitingCount: Int
+    let connectionCount: Int
+    let networkPossibleCount: Int
+    let activityBreakdown: [OverviewBreakdownItem]
+    let protocolBreakdown: [OverviewBreakdownItem]
+    let ipBreakdown: [OverviewBreakdownItem]
+    let accessBreakdown: [OverviewBreakdownItem]
+    let topProcesses: [OverviewProcessUsage]
+
+    static let empty = OverviewSnapshot(records: [], itemCount: 0)
+
+    init(records: [PortRecord], itemCount: Int) {
+        recordCount = records.count
+        self.itemCount = itemCount
+        waitingCount = records.count(where: \.isListening)
+        connectionCount = records.count(where: \.isActiveConnection)
+        networkPossibleCount = records.count {
+            $0.isListening && $0.accessScope == .networkPossible
+        }
+
+        activityBreakdown = [
+            .init(kind: .waiting, count: records.count { $0.activityKind == .waiting }),
+            .init(kind: .connected, count: records.count { $0.activityKind == .connected }),
+            .init(kind: .transitioning, count: records.count { $0.activityKind == .transitioning }),
+            .init(kind: .other, count: records.count { $0.activityKind == .other })
+        ]
+        protocolBreakdown = [
+            .init(kind: .tcp, count: records.count { $0.transport == .tcp }),
+            .init(kind: .udp, count: records.count { $0.transport == .udp })
+        ]
+        ipBreakdown = [
+            .init(kind: .ipv4, count: records.count { $0.ipVersion == .v4 }),
+            .init(kind: .ipv6, count: records.count { $0.ipVersion == .v6 }),
+            .init(kind: .unknownIP, count: records.count { $0.ipVersion == .unknown })
+        ]
+
+        let listeners = records.filter(\.isListening)
+        accessBreakdown = [
+            .init(kind: .localOnly, count: listeners.count { $0.accessScope == .localOnly }),
+            .init(kind: .networkPossible, count: listeners.count { $0.accessScope == .networkPossible }),
+            .init(kind: .unknownAccess, count: listeners.count { $0.accessScope == .unknown })
+        ]
+
+        topProcesses = Dictionary(grouping: records, by: \.processName)
+            .map { processName, processRecords in
+                OverviewProcessUsage(
+                    processName: processName,
+                    recordCount: processRecords.count,
+                    listeningCount: processRecords.count(where: \.isListening),
+                    connectionCount: processRecords.count(where: \.isActiveConnection)
+                )
+            }
+            .sorted {
+                if $0.recordCount != $1.recordCount { return $0.recordCount > $1.recordCount }
+                return $0.processName.localizedStandardCompare($1.processName) == .orderedAscending
+            }
+            .prefix(5)
+            .map { $0 }
+    }
+}
+
 @MainActor
 @Observable
 final class MainWindowViewModel {
@@ -144,6 +258,7 @@ final class MainWindowViewModel {
     @ObservationIgnored private var cachedDisplayedItems: [ReadablePortItem]?
     @ObservationIgnored private var cachedStateOptions: [String] = []
     @ObservationIgnored private var cachedScopeCounts: [SidebarScope: Int] = [:]
+    @ObservationIgnored private var cachedOverviewSnapshot = OverviewSnapshot.empty
 
     init(portViewModel: PortViewModel) {
         self.portViewModel = portViewModel
@@ -160,6 +275,7 @@ final class MainWindowViewModel {
             let records = portViewModel.records
             cachedItems = ReadablePortItem.group(records)
             cachedPortMapBuckets = PortMapLayout.buckets(for: cachedItems)
+            cachedOverviewSnapshot = OverviewSnapshot(records: records, itemCount: cachedItems.count)
             cachedDisplayedItems = nil
             cachedStateOptions = Array(Set(records.compactMap(\.normalizedState))).sorted()
 
@@ -182,6 +298,11 @@ final class MainWindowViewModel {
     var portMapBuckets: [PortMapBucket] {
         _ = allItems
         return cachedPortMapBuckets
+    }
+
+    var overviewSnapshot: OverviewSnapshot {
+        _ = allItems
+        return cachedOverviewSnapshot
     }
 
     var recordIDs: [ReadablePortItem.ID] {
