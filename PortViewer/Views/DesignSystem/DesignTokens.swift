@@ -19,13 +19,6 @@ enum PVSpacing {
     static let six: CGFloat = 24
 }
 
-enum PVMotion {
-    static let hover = Animation.easeOut(duration: 0.14)
-    static let focus = Animation.easeOut(duration: 0.16)
-    static let reveal = Animation.easeOut(duration: 0.20)
-    static let selection = Animation.spring(response: 0.32, dampingFraction: 0.92)
-}
-
 enum PVPalette {
     static let canvasBase = dynamic(light: 0xF0F0F2, dark: 0x1E1E20)
     static let canvasTop = dynamic(light: 0xF7F7F8, dark: 0x272729)

@@ -32,6 +32,13 @@ enum FrostedSurfaceKind {
         }
     }
 
+    /// Live backdrop sampling is reserved for compact floating UI. Large panels
+    /// sit over an already-designed canvas, so a pre-tinted surface looks the
+    /// same while avoiding a full-window blur pass during every interaction.
+    var usesLiveMaterial: Bool {
+        self == .floating
+    }
+
     var tintOpacity: Double {
         switch self {
         case .chrome: 0.36
@@ -54,23 +61,32 @@ struct PremiumCanvas: View {
             )
 
             if !reduceTransparency {
-                Circle()
-                    .fill(PVPalette.ambientBlue.opacity(0.24))
+                RadialGradient(
+                    colors: [PVPalette.ambientBlue.opacity(0.20), .clear],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: 280
+                )
                     .frame(width: 560, height: 560)
-                    .blur(radius: 110)
                     .offset(x: 420, y: -300)
 
-                RoundedRectangle(cornerRadius: 180, style: .continuous)
-                    .fill(PVPalette.ambientIndigo.opacity(0.18))
+                EllipticalGradient(
+                    colors: [PVPalette.ambientIndigo.opacity(0.16), .clear],
+                    center: .center,
+                    startRadiusFraction: 0,
+                    endRadiusFraction: 0.52
+                )
                     .frame(width: 640, height: 360)
                     .rotationEffect(.degrees(-12))
-                    .blur(radius: 120)
                     .offset(x: -360, y: 330)
 
-                Circle()
-                    .fill(PVPalette.ambientMint.opacity(0.11))
+                RadialGradient(
+                    colors: [PVPalette.ambientMint.opacity(0.10), .clear],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: 210
+                )
                     .frame(width: 420, height: 420)
-                    .blur(radius: 100)
                     .offset(x: 340, y: 380)
             }
         }
@@ -90,7 +106,7 @@ private struct FrostedSurfaceModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        let usesMaterial = !reduceTransparency
+        let usesMaterial = !reduceTransparency && kind.usesLiveMaterial
         let outerEdge = contrast == .increased ? PVPalette.edgeOuterStrong : PVPalette.edgeOuter
         let ambientOpacity = controlActiveState == .inactive ? 0.45 : 1.0
 
@@ -98,7 +114,7 @@ private struct FrostedSurfaceModifier: ViewModifier {
             .background {
                 shape
                     .fill(usesMaterial ? AnyShapeStyle(kind.material) : AnyShapeStyle(kind.solidFallback))
-                    .overlay { shape.fill(kind.tint.opacity(usesMaterial ? kind.tintOpacity : 1)) }
+                    .overlay { shape.fill(kind.tint.opacity(usesMaterial ? kind.tintOpacity : 0.16)) }
             }
             .overlay {
                 if showsOuterEdge {
@@ -152,9 +168,7 @@ private struct PremiumControlSurfaceModifier: ViewModifier {
             .background {
                 shape
                     .fill(
-                        reduceTransparency
-                            ? AnyShapeStyle(PVPalette.surfaceRaised)
-                            : AnyShapeStyle(.thinMaterial)
+                        AnyShapeStyle(PVPalette.surfaceRaised)
                     )
                     .overlay { shape.fill(fill) }
                     .overlay { shape.fill(isSelected ? accent.opacity(0.11) : .clear) }

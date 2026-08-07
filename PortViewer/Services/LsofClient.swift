@@ -101,7 +101,7 @@ private final class LimitedOutputBuffer: @unchecked Sendable {
 }
 
 private actor LsofProcessSession {
-    private enum StopReason {
+    private enum StopReason: Sendable {
         case timedOut
         case cancelled
         case outputTooLarge
@@ -152,10 +152,11 @@ private actor LsofProcessSession {
             await self?.requestStop(.timedOut)
         }
 
+        let cancellationTarget = self
         let completion = await withTaskCancellationHandler {
             await waitForCompletion()
-        } onCancel: { [weak self] in
-            Task { await self?.requestStop(.cancelled) }
+        } onCancel: {
+            Task { await cancellationTarget.requestStop(.cancelled) }
         }
 
         switch completion.stopReason {

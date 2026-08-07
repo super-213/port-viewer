@@ -451,19 +451,33 @@ Popover、帮助浮层和复杂选择器面板使用：
 - selected 使用 10–14% accent tonal fill + 1 pt 内边缘，可加 2 pt 左侧短标记，但不能做霓虹竖线；
 - 图标使用 monochrome/hierarchical SF Symbols，不给每一项随机配色；
 - 数量使用 `.monospacedDigit()`，放入极轻的 tonal capsule；
-- 说明文字可保留两行，但 selected 时仍需达到足够对比度。
+- 说明文字默认收纳到 hover help 与辅助功能文本，不在侧栏常驻小字号段落。
 
-### 11.8 OverviewBar / Metric Rail
+### 11.8 ActivityOverview / 统计总览
 
-概况栏不改成三张独立 Dashboard 卡片，而是形成一条完整的玻璃指标轨道：
+概况区借鉴网络监控 Dashboard 的“先看数字、再进入明细”逻辑，但仍作为一块完整的 macOS 玻璃面板，不拆成网页式卡片墙：
 
-- 高度 48–52 pt；
-- 外层使用 `surface.glass`、12 pt 圆角和复合边缘；
-- 三个指标以内部 separator 分隔；
-- 图标使用状态色，数字使用 primary + monospacedDigit，标签使用 secondary；
-- hover 单个指标时只改变该 cell 的 5–7% tonal fill；
-- “什么是端口？”作为 Quiet/Link 入口置于轨道尾部；
-- 更新时间属于元数据，不与指标竞争视觉权重。
+- 顶部只保留“活动概览”、刷新状态、更新时间和统计口径入口；
+- 下方展示“全部活动、等待连接、连接活动、其他网络活动”四个等宽指标；
+- 数字使用 26 pt rounded semibold + monospacedDigit，成为进入页面后的第一视觉层级；
+- 图标使用对应语义色，标签使用 callout，不以 caption/caption2 承载主要信息；
+- 每个指标本身就是筛选入口，点击后同步更新侧栏、列表和选中态；
+- selected 使用 10–14% tonal fill + 语义色边缘，hover 只轻微抬高表面，pressed 提供即时缩放反馈；
+- 完整解释收纳到统计口径 popover，默认页面不常驻教学段落；
+- 更新时间属于元数据，不与指标竞争视觉权重；
+- 四个指标必须保持在同一共享容器中，避免厚重阴影、霓虹或营销式 Bento 拼贴。
+
+#### 端口地图
+
+- 统计指标下方使用 128 个固定格子映射完整的 `0...65535` 端口空间，每格覆盖 512 个连续端口；
+- 格子位置必须稳定，刷新、搜索和筛选只改变激活状态，不能重新顺序排列当前活动；
+- 空格子使用低对比度 surface + edge，活动格以语义色描边和轻量 tonal fill 表达；
+- 等待连接使用 waiting、连接活动使用 connected、其他活动使用 neutral，同一区间包含多类活动时使用 accent.indigo；
+- 颜色不是唯一信息：活动格具有明确描边，多项活动格带角标，hover、help 和辅助功能文本提供端口范围及数量；
+- 单项格点击后直接选中主列表记录，多项格从触发位置打开 popover，不跳转到新的页面；
+- 选中记录所在格使用 2 pt accent edge 和微弱近场光，不使用持续呼吸、雷达扫描或粒子流动；
+- 按下反馈可短暂缩放，`accessibilityReduceMotion` 开启时仅调整透明度；
+- 地图随当前搜索和筛选结果更新，但仍保持完整端口空间作为空间参照。
 
 ### 11.9 FilterBar
 

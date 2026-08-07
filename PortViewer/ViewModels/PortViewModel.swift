@@ -93,6 +93,7 @@ struct TerminationPrompt: Identifiable, Equatable {
 @Observable
 final class PortViewModel {
     private(set) var records: [PortRecord] = []
+    private(set) var recordsRevision = 0
     private(set) var state: QueryPresentationState = .loading
     private(set) var lastSuccessfulUpdate: Date?
     private(set) var lastQueryDuration: TimeInterval?
@@ -495,6 +496,7 @@ final class PortViewModel {
         )
         if recordsChanged {
             records = snapshot.records
+            recordsRevision &+= 1
             var nextListeningCount = 0
             var nextActiveConnectionCount = 0
             var nextOtherNetworkActivityCount = 0

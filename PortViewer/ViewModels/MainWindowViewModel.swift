@@ -138,8 +138,9 @@ final class MainWindowViewModel {
     @ObservationIgnored private var lastSelectedItem: ReadablePortItem?
     @ObservationIgnored private var expiredSelection: ReadablePortItem?
     @ObservationIgnored private var expirationTask: Task<Void, Never>?
-    @ObservationIgnored private var cachedRecords: [PortRecord] = []
+    @ObservationIgnored private var cachedRecordsRevision = -1
     @ObservationIgnored private var cachedItems: [ReadablePortItem] = []
+    @ObservationIgnored private var cachedPortMapBuckets: [PortMapBucket] = []
     @ObservationIgnored private var cachedDisplayedItems: [ReadablePortItem]?
     @ObservationIgnored private var cachedStateOptions: [String] = []
     @ObservationIgnored private var cachedScopeCounts: [SidebarScope: Int] = [:]
@@ -153,10 +154,12 @@ final class MainWindowViewModel {
     }
 
     var allItems: [ReadablePortItem] {
-        let records = portViewModel.records
-        if records != cachedRecords {
-            cachedRecords = records
+        let revision = portViewModel.recordsRevision
+        if revision != cachedRecordsRevision {
+            cachedRecordsRevision = revision
+            let records = portViewModel.records
             cachedItems = ReadablePortItem.group(records)
+            cachedPortMapBuckets = PortMapLayout.buckets(for: cachedItems)
             cachedDisplayedItems = nil
             cachedStateOptions = Array(Set(records.compactMap(\.normalizedState))).sorted()
 
@@ -174,6 +177,11 @@ final class MainWindowViewModel {
             cachedScopeCounts = counts
         }
         return cachedItems
+    }
+
+    var portMapBuckets: [PortMapBucket] {
+        _ = allItems
+        return cachedPortMapBuckets
     }
 
     var recordIDs: [ReadablePortItem.ID] {

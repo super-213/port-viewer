@@ -9,6 +9,57 @@ enum NetworkActivityKind: String, CaseIterable, Identifiable, Sendable {
     var id: Self { self }
 }
 
+struct PortMapBucket: Identifiable, Hashable, Sendable {
+    let index: Int
+    let lowerBound: Int
+    let upperBound: Int
+    let items: [ReadablePortItem]
+    let ports: [Int]
+
+    var id: Int { index }
+    var rangeDescription: String { "\(lowerBound)–\(upperBound)" }
+}
+
+enum PortMapLayout {
+    static let bucketCount = 128
+    static let portCapacity = 65_536
+    static let bucketSize = portCapacity / bucketCount
+
+    static func bucketIndex(for port: Int) -> Int? {
+        guard (0..<portCapacity).contains(port) else { return nil }
+        return port / bucketSize
+    }
+
+    static func buckets(for items: [ReadablePortItem]) -> [PortMapBucket] {
+        var assignments = Array(repeating: [ReadablePortItem](), count: bucketCount)
+
+        for item in items {
+            let indices = Set(item.localPorts.compactMap(bucketIndex(for:)))
+            for index in indices {
+                assignments[index].append(item)
+            }
+        }
+
+        return assignments.enumerated().map { index, bucketItems in
+            let lowerBound = index * bucketSize
+            let upperBound = min(((index + 1) * bucketSize) - 1, portCapacity - 1)
+            let sortedItems = bucketItems.sorted {
+                if $0.localPortSortValue != $1.localPortSortValue {
+                    return $0.localPortSortValue < $1.localPortSortValue
+                }
+                return $0.processSortValue < $1.processSortValue
+            }
+            return PortMapBucket(
+                index: index,
+                lowerBound: lowerBound,
+                upperBound: upperBound,
+                items: sortedItems,
+                ports: Array(Set(sortedItems.flatMap(\.localPorts).filter { lowerBound...upperBound ~= $0 })).sorted()
+            )
+        }
+    }
+}
+
 enum ActivityTopologyKind: String, Sendable {
     case single
     case multipleServicePorts
@@ -311,22 +362,22 @@ extension PortRecord {
 struct ReadablePortItem: Identifiable, Hashable, Sendable {
     let id: String
     let rawRecords: [PortRecord]
+    let localPorts: [Int]
+    let remoteEndpoints: [String]
+    let connectionCount: Int
+    let processSummaries: [ProcessUsageSummary]
 
-    var representative: PortRecord { rawRecords[0] }
-    var processName: String { representative.processName }
-    var pid: Int32 { representative.pid }
-    var transport: TransportProtocol { representative.transport }
-    var localPort: Int? { representative.localPort }
-    var localPorts: [Int] { Array(Set(rawRecords.compactMap(\.localPort))).sorted() }
-    var remoteEndpoints: [String] {
-        Array(Set(rawRecords.compactMap { record in
+    init(id: String, rawRecords: [PortRecord]) {
+        self.id = id
+        self.rawRecords = rawRecords
+        localPorts = Array(Set(rawRecords.compactMap(\.localPort))).sorted()
+        remoteEndpoints = Array(Set(rawRecords.compactMap { record in
             record.remoteAddress == nil ? nil : record.remoteEndpoint
         })).sorted()
-    }
-    var connectionCount: Int { rawRecords.filter(\.isActiveConnection).count }
-    var remoteTargetCount: Int { remoteEndpoints.count }
-    var processSummaries: [ProcessUsageSummary] {
-        Dictionary(grouping: rawRecords, by: \.pid).map { pid, records in
+        connectionCount = rawRecords.reduce(into: 0) { count, record in
+            if record.isActiveConnection { count += 1 }
+        }
+        processSummaries = Dictionary(grouping: rawRecords, by: \.pid).map { pid, records in
             ProcessUsageSummary(
                 pid: pid,
                 processName: records[0].processName,
@@ -334,6 +385,13 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
             )
         }.sorted { $0.pid < $1.pid }
     }
+
+    var representative: PortRecord { rawRecords[0] }
+    var processName: String { representative.processName }
+    var pid: Int32 { representative.pid }
+    var transport: TransportProtocol { representative.transport }
+    var localPort: Int? { representative.localPort }
+    var remoteTargetCount: Int { remoteEndpoints.count }
     var processCount: Int { processSummaries.count }
     var localPortText: String {
         switch localPorts.count {

@@ -254,7 +254,7 @@ private struct MenuBarRecordButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(PVMotion.hover) { isHovered = hovering }
+            isHovered = hovering
         }
         .accessibilityLabel("端口 \(record.localPortText)，\(record.processName)，正在等待连接")
     }

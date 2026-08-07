@@ -54,7 +54,7 @@ struct GlassButtonStyle: ButtonStyle {
                 .premiumControlSurface(isHovered: isHovered, isPressed: isPressed)
                 .contentShape(RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous))
                 .onHover { hovering in
-                    withAnimation(PVMotion.hover) { isHovered = hovering }
+                    isHovered = hovering
                 }
         }
     }
@@ -94,7 +94,7 @@ struct QuietButtonStyle: ButtonStyle {
                 .opacity(isEnabled ? (isPressed ? 0.70 : 1) : 0.48)
                 .contentShape(RoundedRectangle(cornerRadius: PVRadius.small, style: .continuous))
                 .onHover { hovering in
-                    withAnimation(PVMotion.hover) { isHovered = hovering }
+                    isHovered = hovering
                 }
         }
     }
@@ -126,7 +126,7 @@ struct DangerButtonStyle: ButtonStyle {
                     accent: PVPalette.danger
                 )
                 .onHover { hovering in
-                    withAnimation(PVMotion.hover) { isHovered = hovering }
+                    isHovered = hovering
                 }
         }
     }
@@ -156,7 +156,7 @@ struct FilterChipButtonStyle: ButtonStyle {
                     accent: PVPalette.accentPrimary
                 )
                 .onHover { hovering in
-                    withAnimation(PVMotion.hover) { isHovered = hovering }
+                    isHovered = hovering
                 }
         }
     }
@@ -201,11 +201,7 @@ private struct PremiumPickerButtonStyle: ButtonStyle {
             label
                 .background {
                     shape
-                        .fill(
-                            reduceTransparency
-                                ? AnyShapeStyle(PVPalette.surfaceRaised)
-                                : AnyShapeStyle(.thinMaterial)
-                        )
+                        .fill(PVPalette.surfaceRaised)
                         .overlay { shape.fill(fill) }
                         .overlay {
                             shape.fill(isPressed ? PVPalette.textPrimary.opacity(0.07) : .clear)
@@ -253,7 +249,6 @@ struct PremiumPicker<Option: Hashable>: View {
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         _ title: String,
@@ -311,11 +306,7 @@ struct PremiumPicker<Option: Hashable>: View {
         .menuIndicator(.hidden)
         .focused($isFocused)
         .onHover { hovering in
-            if reduceMotion {
-                isHovered = hovering
-            } else {
-                withAnimation(PVMotion.hover) { isHovered = hovering }
-            }
+            isHovered = hovering
         }
         .opacity(isEnabled ? 1 : 0.52)
         .help("选择\(title)")
@@ -360,7 +351,7 @@ struct PremiumSearchField: View {
         .frame(height: compact ? 30 : 32)
         .premiumControlSurface(isHovered: isHovered, isFocused: isFocused)
         .onHover { hovering in
-            withAnimation(PVMotion.hover) { isHovered = hovering }
+            isHovered = hovering
         }
         .onChange(of: focusRequest.wrappedValue) { _, requested in
             if requested { isFocused = true }
@@ -368,6 +359,5 @@ struct PremiumSearchField: View {
         .onChange(of: isFocused) { _, focused in
             if !focused { focusRequest.wrappedValue = false }
         }
-        .animation(PVMotion.focus, value: isFocused)
     }
 }

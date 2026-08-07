@@ -4,11 +4,10 @@ import SwiftUI
 struct MainWindowView: View {
     @Bindable var portViewModel: PortViewModel
     @Bindable var viewModel: MainWindowViewModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     @State private var technicalDetailsExpanded = false
     @State private var searchIsFocused = false
     @State private var sidebarIsVisible = true
+    @State private var selectedPage: MainSidebarPage = .overview
 
     var body: some View {
         ZStack {
@@ -35,48 +34,7 @@ struct MainWindowView: View {
                         }
                     }
 
-                    OverviewBar(portViewModel: portViewModel)
-                    FilterBar(
-                        scope: $viewModel.scope,
-                        accessFilter: $viewModel.accessFilter,
-                        ownerFilter: $viewModel.ownerFilter,
-                        connectionPhaseFilter: $viewModel.connectionPhaseFilter,
-                        protocolFilter: $viewModel.protocolFilter,
-                        ipFilter: $viewModel.ipFilter,
-                        stateFilter: $viewModel.stateFilter,
-                        stateOptions: viewModel.stateOptions,
-                        activeFilterLabels: sidebarIsVisible
-                            ? viewModel.activeFilterLabels.filter { $0 != viewModel.scope.rawValue }
-                            : viewModel.activeFilterLabels,
-                        showsScopePicker: !sidebarIsVisible,
-                        clearFilter: viewModel.clearFilter,
-                        reset: viewModel.resetFilters
-                    )
-
-                    Group {
-                        if viewModel.selectedItem == nil {
-                            VStack(spacing: 0) {
-                                tableOrState
-                                    .frame(minHeight: 280)
-                                PremiumSeparator()
-                                recordDetail
-                                    .frame(height: 76)
-                            }
-                        } else {
-                            VSplitView {
-                                tableOrState
-                                    .frame(minHeight: 240, idealHeight: 390)
-
-                                recordDetail
-                                    .frame(minHeight: 220, idealHeight: 300)
-                            }
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: PVRadius.panel, style: .continuous))
-                    .frostedSurface(.content, radius: PVRadius.panel)
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 10)
-                    .animation(reduceMotion ? nil : PVMotion.selection, value: viewModel.selectedItem?.id)
+                    mainContent
                 }
             }
         }
@@ -90,7 +48,24 @@ struct MainWindowView: View {
         }
         .onDisappear { portViewModel.setMainWindowVisible(false) }
         .onReceive(NotificationCenter.default.publisher(for: .focusPortSearch)) { _ in
+            showActivity(.all)
             searchIsFocused = true
+        }
+        .onChange(of: selectedPage) { _, page in
+            if case let .activity(scope) = page, viewModel.scope != scope {
+                viewModel.scope = scope
+            }
+        }
+        .onChange(of: viewModel.scope) { _, scope in
+            if case .activity = selectedPage {
+                selectedPage = .activity(scope)
+            }
+        }
+        .onChange(of: viewModel.searchText) { _, searchText in
+            if selectedPage == .overview,
+               !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                showActivity(.all)
+            }
         }
         .onChange(of: viewModel.recordIDs) { _, _ in
             viewModel.reconcileSelectionAfterRefresh()
@@ -116,44 +91,128 @@ struct MainWindowView: View {
     }
 
     private var sidebar: some View {
-        List(SidebarScope.allCases, selection: $viewModel.scope) { item in
-            Label {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.rawValue)
-                        Text(item.explanation)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
+        List(selection: $selectedPage) {
+            Label("总览", systemImage: "chart.bar.xaxis")
+                .tag(MainSidebarPage.overview)
+                .help("查看活动统计和端口分布")
+                .accessibilityLabel("总览，查看活动统计和端口分布")
+
+            Section("活动") {
+                ForEach(SidebarScope.allCases) { item in
+                    Label {
+                        HStack(spacing: 8) {
+                            Text(item.rawValue)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text(String(viewModel.count(for: item)))
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(PVPalette.textSecondary)
+                                .monospacedDigit()
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(PVPalette.textPrimary.opacity(0.055), in: Capsule())
+                        }
+                    } icon: {
+                        Image(systemName: item.symbol)
                     }
-                    Spacer(minLength: 4)
-                    Text(String(viewModel.count(for: item)))
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(PVPalette.textSecondary)
-                        .monospacedDigit()
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(PVPalette.textPrimary.opacity(0.055), in: Capsule())
+                    .tag(MainSidebarPage.activity(item))
+                    .help(item.explanation)
+                    .accessibilityLabel("\(item.rawValue)，\(viewModel.count(for: item)) 条。\(item.explanation)")
                 }
-            } icon: {
-                Image(systemName: item.symbol)
             }
-            .tag(item)
-            .accessibilityLabel("\(item.rawValue)，\(viewModel.count(for: item)) 条。\(item.explanation)")
         }
         .listStyle(.sidebar)
         .tint(PVPalette.accentPrimary)
         .scrollContentBackground(.hidden)
         .background {
             Rectangle()
-                .fill(.regularMaterial)
-                .overlay(PVPalette.surfaceGlass.opacity(0.38))
+                .fill(PVPalette.surfaceBento)
                 .overlay(alignment: .trailing) {
-                Rectangle()
-                    .fill(PVPalette.edgeSeparator)
-                    .frame(width: 1)
-            }
+                    Rectangle()
+                        .fill(PVPalette.edgeSeparator)
+                        .frame(width: 1)
+                }
         }
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        switch selectedPage {
+        case .overview:
+            ActivityOverview(
+                totalCount: viewModel.count(for: .all),
+                waitingCount: viewModel.count(for: .waiting),
+                connectionCount: viewModel.count(for: .connections),
+                otherCount: viewModel.count(for: .other),
+                buckets: viewModel.portMapBuckets,
+                itemCount: viewModel.allItems.count,
+                selectedID: viewModel.selectedID,
+                lastSuccessfulUpdate: portViewModel.lastSuccessfulUpdate,
+                isRefreshing: portViewModel.isRefreshing,
+                onSelectScope: showActivity,
+                onSelectItem: showActivity
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+        case .activity:
+            activityWorkspace
+        }
+    }
+
+    private var activityWorkspace: some View {
+        VStack(spacing: 0) {
+            FilterBar(
+                scope: $viewModel.scope,
+                accessFilter: $viewModel.accessFilter,
+                ownerFilter: $viewModel.ownerFilter,
+                connectionPhaseFilter: $viewModel.connectionPhaseFilter,
+                protocolFilter: $viewModel.protocolFilter,
+                ipFilter: $viewModel.ipFilter,
+                stateFilter: $viewModel.stateFilter,
+                stateOptions: viewModel.stateOptions,
+                activeFilterLabels: sidebarIsVisible
+                    ? viewModel.activeFilterLabels.filter { $0 != viewModel.scope.rawValue }
+                    : viewModel.activeFilterLabels,
+                visibleCount: viewModel.displayedItems.count,
+                showsScopePicker: !sidebarIsVisible,
+                clearFilter: viewModel.clearFilter,
+                reset: viewModel.resetFilters
+            )
+
+            Group {
+                if viewModel.selectedItem == nil {
+                    VStack(spacing: 0) {
+                        tableOrState
+                            .frame(minHeight: 280)
+                        PremiumSeparator()
+                        recordDetail
+                            .frame(height: 76)
+                    }
+                } else {
+                    VSplitView {
+                        tableOrState
+                            .frame(minHeight: 240, idealHeight: 390)
+
+                        recordDetail
+                            .frame(minHeight: 220, idealHeight: 300)
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: PVRadius.panel, style: .continuous))
+            .frostedSurface(.content, radius: PVRadius.panel)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+        }
+    }
+
+    private func showActivity(_ scope: SidebarScope) {
+        viewModel.scope = scope
+        selectedPage = .activity(scope)
+    }
+
+    private func showActivity(_ item: ReadablePortItem) {
+        showActivity(.all)
+        viewModel.select(item)
     }
 
     private var recordDetail: some View {
@@ -260,132 +319,202 @@ struct MainWindowView: View {
     }
 }
 
-private struct OverviewBar: View {
-    let portViewModel: PortViewModel
-    @State private var help: OverviewHelp?
+private struct ActivityOverview: View {
+    let totalCount: Int
+    let waitingCount: Int
+    let connectionCount: Int
+    let otherCount: Int
+    let buckets: [PortMapBucket]
+    let itemCount: Int
+    let selectedID: ReadablePortItem.ID?
+    let lastSuccessfulUpdate: Date?
+    let isRefreshing: Bool
+    let onSelectScope: (SidebarScope) -> Void
+    let onSelectItem: (ReadablePortItem) -> Void
 
-    private enum OverviewHelp: String, Identifiable {
-        case waiting = "等待连接"
-        case connections = "连接活动"
-        case other = "其他网络活动"
-        case port = "什么是端口？"
-
-        var id: Self { self }
-
-        var explanation: String {
-            switch self {
-            case .waiting: return "TCP 应用开放了编号入口，正在等待其他程序连接。数量来自底层技术记录，不代表风险高低。"
-            case .connections: return "应用与另一个地址之间存在建立中、已建立或关闭中的 TCP 连接。"
-            case .other: return "包含不保持固定连接状态的 UDP，以及暂时无法归入前两类的网络记录。"
-            case .port: return "本机端口是应用在这台 Mac 上收发网络数据时使用的编号。服务端口用于等待连接；应用连接其他服务时也会使用本机连接端口。相同端口不一定是同一连接，多个连接端口也不代表应用对外开放了多个服务。"
-            }
-        }
-    }
-
+    @State private var showsHelp = false
     var body: some View {
-        HStack(spacing: 8) {
-            metric(.waiting, value: portViewModel.listeningCount, symbol: "dot.radiowaves.left.and.right", color: PVPalette.waiting)
-            railSeparator
-            metric(.connections, value: portViewModel.activeConnectionCount, symbol: "arrow.left.arrow.right", color: PVPalette.connected)
-            railSeparator
-            metric(.other, value: portViewModel.otherNetworkActivityCount, symbol: "antenna.radiowaves.left.and.right", color: PVPalette.neutral)
-            Spacer(minLength: 0)
-            railSeparator
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Text(updateDescription)
-                    .font(.caption)
-                    .foregroundStyle(PVPalette.textTertiary)
-                Button {
-                    help = .port
-                } label: {
-                    Label("什么是端口？", systemImage: "questionmark.circle")
+                Text("活动概览")
+                    .font(.headline)
+                    .foregroundStyle(PVPalette.textPrimary)
+
+                if isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("正在刷新")
                 }
-                .buttonStyle(QuietButtonStyle(size: 30, horizontalPadding: 8))
-                .accessibilityHint("打开端口概念说明")
+
+                Spacer(minLength: 12)
+
+                Text(updateDescription)
+                    .font(.callout)
+                    .foregroundStyle(PVPalette.textSecondary)
+
+                Button {
+                    showsHelp = true
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .buttonStyle(QuietButtonStyle(size: 28, horizontalPadding: 0))
+                .help("查看统计口径")
+                .accessibilityLabel("查看统计口径")
             }
-            .padding(.leading, 6)
-            .frame(minHeight: 34)
-        }
-        .font(.callout)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.regularMaterial)
-        .background(PVPalette.surfaceGlass.opacity(0.30))
-        .overlay(alignment: .bottom) {
+
+            HStack(spacing: 8) {
+                metric(.all, value: totalCount, color: PVPalette.accentPrimary)
+                metric(.waiting, value: waitingCount, color: PVPalette.waiting)
+                metric(.connections, value: connectionCount, color: PVPalette.connected)
+                metric(.other, value: otherCount, color: PVPalette.neutral)
+            }
+
             PremiumSeparator()
+
+            PortActivityMap(
+                buckets: buckets,
+                itemCount: itemCount,
+                selectedID: selectedID,
+                onSelect: onSelectItem
+            )
         }
-        .popover(item: $help) { topic in
-            HelpPopover(title: topic.rawValue, text: topic.explanation)
+        .padding(14)
+        .frostedSurface(.chrome, radius: PVRadius.panel)
+        .padding(.horizontal, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .popover(isPresented: $showsHelp) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("统计口径")
+                    .font(.headline)
+                helpRow(.waiting)
+                helpRow(.connections)
+                helpRow(.other)
+                Text("数字来自系统返回的底层网络记录，用于观察活动规模，不表示风险高低。")
+                    .font(.callout)
+                    .foregroundStyle(PVPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            .frame(width: 360, alignment: .leading)
+            .frostedSurface(.floating, radius: PVRadius.floating)
         }
     }
 
-    private func metric(_ topic: OverviewHelp, value: Int, symbol: String, color: Color) -> some View {
-        MetricRailButton(
-            title: topic.rawValue,
+    private func metric(_ item: SidebarScope, value: Int, color: Color) -> some View {
+        OverviewMetricButton(
+            title: item.rawValue,
             value: value,
-            symbol: symbol,
+            symbol: item.symbol,
             color: color,
-            help: topic.explanation
-        ) { help = topic }
+            isSelected: false,
+            help: item.explanation
+        ) {
+            onSelectScope(item)
+        }
     }
 
     private var updateDescription: String {
-        guard let update = portViewModel.lastSuccessfulUpdate else { return "等待首次查询" }
+        guard let update = lastSuccessfulUpdate else { return "等待首次查询" }
         let elapsed = Date().timeIntervalSince(update)
         if elapsed < 10 { return "刚刚更新" }
-        return "已更新 \(update.formatted(.relative(presentation: .named)))"
+        return update.formatted(.relative(presentation: .named))
     }
 
-    private var railSeparator: some View {
-        Rectangle()
-            .fill(PVPalette.edgeSeparator)
-            .frame(width: 1, height: 28)
-            .accessibilityHidden(true)
+    private func helpRow(_ item: SidebarScope) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: item.symbol)
+                .foregroundStyle(item == .waiting ? PVPalette.waiting : item == .connections ? PVPalette.connected : PVPalette.neutral)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.rawValue)
+                    .font(.callout.weight(.semibold))
+                Text(item.explanation)
+                    .font(.callout)
+                    .foregroundStyle(PVPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
-private struct MetricRailButton: View {
+private enum MainSidebarPage: Hashable {
+    case overview
+    case activity(SidebarScope)
+}
+
+private struct OverviewMetricButton: View {
     let title: String
     let value: Int
     let symbol: String
     let color: Color
+    let isSelected: Bool
     let help: String
     let action: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 11) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(String(value))
+                        .font(.system(size: 26, weight: .semibold, design: .rounded))
+                        .foregroundStyle(PVPalette.textPrimary)
+                        .monospacedDigit()
+
+                    Text(title)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(isSelected ? color : PVPalette.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 4)
+
                 Image(systemName: symbol)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(color)
-                    .frame(width: 24, height: 24)
-                    .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: PVRadius.small, style: .continuous))
-                Text(String(value))
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(PVPalette.textPrimary)
-                    .monospacedDigit()
-                Text(title)
-                    .foregroundStyle(PVPalette.textSecondary)
-                    .lineLimit(1)
+                    .frame(width: 36, height: 36)
+                    .background(color.opacity(isSelected ? 0.18 : 0.10), in: RoundedRectangle(cornerRadius: PVRadius.node, style: .continuous))
             }
-            .padding(.horizontal, 8)
-            .frame(minWidth: 132, minHeight: 34, alignment: .leading)
-            .background(
-                isHovered ? color.opacity(0.12) : Color.clear,
-                in: RoundedRectangle(cornerRadius: PVRadius.control, style: .continuous)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+            .premiumControlSurface(
+                radius: PVRadius.node,
+                isHovered: isHovered,
+                isSelected: isSelected,
+                accent: color,
+                raised: isSelected
             )
-            .contentShape(Rectangle())
+            .contentShape(RoundedRectangle(cornerRadius: PVRadius.node, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OverviewMetricButtonStyle())
         .onHover { hovering in
-            withAnimation(PVMotion.hover) { isHovered = hovering }
+            isHovered = hovering
         }
         .help(help)
         .accessibilityLabel("\(title)，\(value) 条")
-        .accessibilityHint("打开指标说明")
+        .accessibilityHint(isSelected ? "当前正在显示此类活动" : "筛选并显示此类活动")
+    }
+}
+
+private struct OverviewMetricButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Body(label: configuration.label, isPressed: configuration.isPressed)
     }
 
+    private struct Body<Label: View>: View {
+        let label: Label
+        let isPressed: Bool
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+        var body: some View {
+            label
+                .scaleEffect(isPressed && !reduceMotion ? 0.985 : 1)
+                .opacity(isPressed ? 0.88 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: isPressed)
+        }
+    }
 }
 
 private struct FilterBar: View {
@@ -398,13 +527,12 @@ private struct FilterBar: View {
     @Binding var stateFilter: String
     let stateOptions: [String]
     let activeFilterLabels: [String]
+    let visibleCount: Int
     let showsScopePicker: Bool
     let clearFilter: (String) -> Void
     let reset: () -> Void
 
     @State private var showsMoreFilters = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
@@ -464,10 +592,10 @@ private struct FilterBar: View {
                 }
 
                 Spacer()
-                ConceptHelpButton(
-                    title: "列表中的信息",
-                    text: "“本机端口”是应用在这台 Mac 上使用的编号；服务端口用于等待连接，连接端口用于连接其他服务。“正在做什么”把 TCP 状态转换成中文；“访问范围/连接到”说明谁可能访问监听端口，或当前连接的另一端。"
-                )
+                Text("\(visibleCount) 项")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(PVPalette.textSecondary)
+                    .monospacedDigit()
             }
 
             if !activeFilterLabels.isEmpty {
@@ -491,17 +619,14 @@ private struct FilterBar: View {
                     }
                 }
                 .scrollIndicators(.hidden)
-                .transition(.opacity)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.regularMaterial)
-        .background(PVPalette.surfaceGlass.opacity(0.28))
+        .background(PVPalette.surfaceBento)
         .overlay(alignment: .bottom) {
             PremiumSeparator()
         }
-        .animation(reduceMotion ? nil : PVMotion.reveal, value: activeFilterLabels)
     }
 }
 
@@ -783,8 +908,6 @@ private struct FriendlyStatusLabel: View {
 private struct PortStatusCell: View {
     let item: ReadablePortItem
     let portViewModel: PortViewModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     private var activitySummary: ListenerActivitySummary? {
         portViewModel.listenerActivitySummary(for: item)
     }
@@ -797,12 +920,10 @@ private struct PortStatusCell: View {
                     .font(.caption2)
                     .foregroundStyle(activityColor(for: activitySummary))
                     .lineLimit(1)
-                    .transition(.opacity)
                     .accessibilityLabel(activitySummary.accessibilityDescription)
             }
         }
         .frame(minHeight: 34, alignment: .leading)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: activitySummary)
     }
 
     private func activityColor(for summary: ListenerActivitySummary) -> Color {
@@ -1111,16 +1232,18 @@ private struct RecordDetailView: View {
                             relatedListenerItems: relatedListenerItems(for: item)
                         )
 
-                        Text(item.conclusion)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        PortStatusOverview(
+                            item: item,
+                            listenerActivity: portViewModel.listenerActivitySummary(for: item),
+                            hasEnded: hasEnded
+                        )
 
-                        if let activitySummary = portViewModel.listenerActivitySummary(for: item) {
-                            ListenerPortActivityView(summary: activitySummary)
+                        ForEach(warnings(for: item), id: \.self) { warning in
+                            Label(warning.text, systemImage: warning.symbol)
+                                .font(.caption)
+                                .foregroundStyle(warning.color)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-
-                        meaningSection(for: item)
 
                         TechnicalDetailsView(
                             item: item,
@@ -1170,31 +1293,16 @@ private struct RecordDetailView: View {
         .frostedSurface(.raised, radius: PVRadius.control)
     }
 
-    private func meaningSection(for item: ReadablePortItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("这意味着什么")
-                .font(.headline)
-            ForEach(explanations(for: item), id: \.self) { explanation in
-                Label(explanation.text, systemImage: explanation.symbol)
-                    .font(.callout)
-                    .foregroundStyle(explanation.color)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private func explanations(for item: ReadablePortItem) -> [MeaningExplanation] {
-        var values = item.meaningMessages.map {
-            MeaningExplanation(text: $0, symbol: "info.circle")
-        }
+    private func warnings(for item: ReadablePortItem) -> [MeaningExplanation] {
+        var values: [MeaningExplanation] = []
         let record = item.representative
         if !record.belongsToCurrentUser {
-            values.append(.init(text: "这是其他用户的进程，当前版本不能直接结束它。", symbol: "lock.fill", warning: true))
+            values.append(.init(text: "其他用户的进程，不能直接结束。", symbol: "lock.fill"))
         }
         if ProcessProtectionPolicy.isCritical(record) {
-            values.append(.init(text: "这是关键系统进程，结束它可能影响系统功能；强制结束已禁用。", symbol: "exclamationmark.shield.fill", warning: true))
+            values.append(.init(text: "关键系统进程，强制结束已禁用。", symbol: "exclamationmark.shield.fill"))
         }
-        return Array(values.prefix(3))
+        return values
     }
 
     private func relatedListenerItems(for item: ReadablePortItem) -> [ReadablePortItem] {
@@ -1273,15 +1381,7 @@ private struct RecordDetailView: View {
 private struct MeaningExplanation: Hashable {
     let text: String
     let symbol: String
-    let warning: Bool
-
-    init(text: String, symbol: String, warning: Bool = false) {
-        self.text = text
-        self.symbol = symbol
-        self.warning = warning
-    }
-
-    var color: Color { warning ? PVPalette.warning : PVPalette.textSecondary }
+    var color: Color { PVPalette.warning }
 }
 
 private struct ConnectionDiagramView: View {
@@ -1404,78 +1504,187 @@ private struct ConnectionDiagramView: View {
                     .transition(.opacity)
             }
 
-            Text(item.textualRelationshipDescription)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel(item.textualRelationshipDescription)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(item.conclusion)
+        .accessibilityLabel("\(item.conclusion)\(item.textualRelationshipDescription)")
     }
 }
 
-private struct ListenerPortActivityView: View {
-    let summary: ListenerActivitySummary
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+private struct PortStatusOverview: View {
+    let item: ReadablePortItem
+    let listenerActivity: ListenerActivitySummary?
+    let hasEnded: Bool
+
+    private var record: PortRecord { item.representative }
+
+    private var statusColor: Color {
+        if hasEnded { return PVPalette.neutral }
+        switch item.activityKind {
+        case .waiting: return PVPalette.waiting
+        case .connected: return PVPalette.connected
+        case .transitioning: return PVPalette.warning
+        case .other: return PVPalette.neutral
+        }
+    }
+
+    private var statusTitle: String {
+        if hasEnded { return "活动已结束" }
+        if let listenerActivity, listenerActivity.connectionCount > 0 {
+            return "有连接进入"
+        }
+        return item.friendlyStatusTitle
+    }
+
+    private var statusSubtitle: String {
+        if hasEnded { return "最后一次观察到的端口信息" }
+        if let listenerActivity {
+            return listenerActivity.connectionCount == 0
+                ? "正在监听，暂未发现连接"
+                : "当前观察到 \(listenerActivity.connectionCount) 条连接"
+        }
+        switch item.activityKind {
+        case .waiting: return item.accessScope.rawValue
+        case .connected: return "两端已具备交换数据的条件"
+        case .transitioning: return "连接正在建立或关闭"
+        case .other where item.transport == .udp: return "UDP 不保持 TCP 式连接状态"
+        case .other: return "系统返回了其他网络状态"
+        }
+    }
+
+    private var statusSymbol: String {
+        if hasEnded { return "checkmark.circle" }
+        if let listenerActivity, listenerActivity.connectionCount > 0 { return "arrow.down.left.circle.fill" }
+        switch item.activityKind {
+        case .waiting: return "dot.radiowaves.left.and.right"
+        case .connected: return "link.circle.fill"
+        case .transitioning: return "arrow.triangle.2.circlepath.circle.fill"
+        case .other: return item.transport == .udp ? "wave.3.right.circle.fill" : "questionmark.circle.fill"
+        }
+    }
+
+    private var connectionMetric: PortStatusMetricValue {
+        if let listenerActivity {
+            return .init(
+                symbol: listenerActivity.connectionCount > 0 ? "arrow.down.left" : "hourglass",
+                title: "当前连接",
+                value: String(listenerActivity.connectionCount)
+            )
+        }
+        if item.transport == .udp {
+            return .init(symbol: "arrow.left.arrow.right", title: "通信方式", value: "无连接")
+        }
+        return .init(
+            symbol: "link",
+            title: "连接数量",
+            value: item.connectionCount > 0 ? String(item.connectionCount) : "—"
+        )
+    }
+
+    private var reachabilityMetric: PortStatusMetricValue {
+        if record.isListening {
+            switch item.accessScope {
+            case .localOnly:
+                return .init(symbol: "laptopcomputer", title: "访问范围", value: "仅本机")
+            case .networkPossible:
+                return .init(symbol: "wifi", title: "访问范围", value: "局域网可能")
+            case .unknown:
+                return .init(symbol: "questionmark.circle", title: "访问范围", value: "暂不确定")
+            }
+        }
+        return .init(symbol: "arrow.up.right", title: "端口角色", value: item.localPortRoleText)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Label("端口活动", systemImage: "arrow.left.arrow.right.circle")
-                    .font(.headline)
-                Spacer()
-                Text(summary.currentDescription)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(summary.connectionCount > 0 ? PVPalette.connected : PVPalette.neutral)
-            }
+        VStack(alignment: .leading, spacing: PVSpacing.three) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: PVSpacing.four) {
+                    PortBadge(item: item, color: statusColor)
+                    statusContent
+                }
 
-            if let recentChange = summary.recentChange {
-                Label(recentChange.kind.shortDescription, systemImage: recentChangeSymbol(recentChange.kind))
-                    .font(.callout)
-                    .foregroundStyle(recentChangeColor(recentChange.kind))
-                    .transition(.opacity)
-            }
-
-            if !summary.remoteEndpoints.isEmpty {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("当前连接对象")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    ForEach(Array(summary.remoteEndpoints.prefix(3)), id: \.self) { endpoint in
-                        Label(endpoint, systemImage: "network")
-                            .font(.system(.caption, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: PVSpacing.three) {
+                    HStack(spacing: PVSpacing.three) {
+                        PortBadge(item: item, color: statusColor, compact: true)
+                        statusHeading
                     }
-                    if summary.remoteEndpoints.count > 3 {
-                        Text("另有 \(summary.remoteEndpoints.count - 3) 个连接对象")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
+                    metricStrip
                 }
             }
 
-            Text("这里显示最近一次系统查询观察到的连接关系，不代表此刻一定正在传输数据。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            PortRangeScale(ports: item.localPorts, color: statusColor)
+
+            if let recentChange = listenerActivity?.recentChange {
+                Label(recentChange.kind.shortDescription, systemImage: recentChangeSymbol(recentChange.kind))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(recentChangeColor(recentChange.kind))
+            }
         }
-        .padding(12)
+        .padding(PVSpacing.four)
         .premiumControlSurface(
-            radius: PVRadius.control,
-            isSelected: summary.connectionCount > 0,
-            accent: summary.connectionCount > 0 ? PVPalette.connected : PVPalette.neutral
+            radius: PVRadius.panel,
+            isSelected: !hasEnded,
+            accent: statusColor,
+            raised: true
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("端口活动。\(summary.accessibilityDescription)连接关系不代表此刻一定正在传输数据。")
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: summary)
+        .accessibilityLabel(accessibilityDescription)
     }
 
-    private var activityBackground: Color {
-        summary.connectionCount > 0 ? PVPalette.connected.opacity(0.07) : PVPalette.surfaceContent
+    private var statusContent: some View {
+        VStack(alignment: .leading, spacing: PVSpacing.three) {
+            statusHeading
+            metricStrip
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var statusHeading: some View {
+        HStack(spacing: PVSpacing.two) {
+            Image(systemName: statusSymbol)
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(statusColor)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(statusTitle)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(PVPalette.textPrimary)
+                Text(statusSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(PVPalette.textSecondary)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    private var metricStrip: some View {
+        let metrics = [
+            PortStatusMetricValue(
+                symbol: "point.3.connected.trianglepath.dotted",
+                title: "协议",
+                value: record.protocolDisplay
+            ),
+            connectionMetric,
+            reachabilityMetric
+        ]
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) {
+                ForEach(Array(metrics.enumerated()), id: \.offset) { index, metric in
+                    if index > 0 {
+                        Divider()
+                            .frame(height: 28)
+                            .padding(.horizontal, PVSpacing.three)
+                    }
+                    PortStatusMetric(metric: metric, color: statusColor)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: PVSpacing.two) {
+                ForEach(metrics) { metric in
+                    PortStatusMetric(metric: metric, color: statusColor)
+                }
+            }
+        }
     }
 
     private func recentChangeSymbol(_ kind: PortActivityChangeKind) -> String {
@@ -1491,6 +1700,147 @@ private struct ListenerPortActivityView: View {
         case .appeared, .changed: return PVPalette.connected
         case .ended: return PVPalette.neutral
         }
+    }
+
+    private var accessibilityDescription: String {
+        let ports = item.localPorts.isEmpty
+            ? "端口未知"
+            : "本机\(item.localPortRoleText)\(item.localPorts.map(String.init).joined(separator: "、"))"
+        let activity = listenerActivity.map { "。\($0.accessibilityDescription)" } ?? ""
+        return "\(ports)。状态：\(statusTitle)。协议：\(record.protocolDisplay)\(activity)"
+    }
+}
+
+private struct PortStatusMetricValue: Identifiable {
+    let symbol: String
+    let title: String
+    let value: String
+
+    var id: String { title }
+}
+
+private struct PortStatusMetric: View {
+    let metric: PortStatusMetricValue
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: PVSpacing.two) {
+            Image(systemName: metric.symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 24, height: 24)
+                .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: PVRadius.small))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(metric.title)
+                    .font(.caption2)
+                    .foregroundStyle(PVPalette.textTertiary)
+                Text(metric.value)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(PVPalette.textPrimary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(minWidth: 92, alignment: .leading)
+    }
+}
+
+private struct PortBadge: View {
+    let item: ReadablePortItem
+    let color: Color
+    var compact = false
+
+    private var width: CGFloat { compact ? 126 : 154 }
+    private var height: CGFloat { compact ? 72 : 104 }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: compact ? PVRadius.node : PVRadius.floating, style: .continuous)
+                .fill(PVPalette.surfaceControl.opacity(0.72))
+                .overlay {
+                    RoundedRectangle(cornerRadius: compact ? PVRadius.node : PVRadius.floating, style: .continuous)
+                        .strokeBorder(PVPalette.edgeOuterStrong, lineWidth: 1)
+                }
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(color)
+                        .frame(width: 3)
+                        .padding(.vertical, compact ? 10 : 14)
+                        .padding(.leading, 6)
+                }
+
+            VStack(spacing: compact ? 2 : 4) {
+                Label(item.localPorts.count > 1 ? "本机端口组" : "本机端口", systemImage: "rectangle.connected.to.line.below")
+                    .font(.system(size: compact ? 9 : 10, weight: .semibold))
+                    .foregroundStyle(PVPalette.textSecondary)
+
+                if item.localPorts.count == 1, let port = item.localPorts.first {
+                    Text(String(port))
+                        .font(.system(size: compact ? 22 : 30, weight: .bold, design: .rounded))
+                        .minimumScaleFactor(0.72)
+                } else {
+                    Text(String(item.localPorts.count))
+                        .font(.system(size: compact ? 22 : 30, weight: .bold, design: .rounded))
+                    Text("个端口")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(PVPalette.textSecondary)
+                }
+
+                if item.localPorts.count == 1 {
+                    Text(item.localPortRoleText)
+                        .font(.system(size: compact ? 8 : 9, weight: .medium))
+                        .foregroundStyle(PVPalette.textSecondary)
+                }
+            }
+            .foregroundStyle(PVPalette.textPrimary)
+            .padding(.horizontal, compact ? 12 : 16)
+        }
+        .frame(width: width, height: height)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct PortRangeScale: View {
+    let ports: [Int]
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 4) {
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(PVPalette.edgeOuter)
+                        .frame(height: 3)
+
+                    ForEach(Array(ports.prefix(20)), id: \.self) { port in
+                        Circle()
+                            .fill(color)
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(PVPalette.surfaceRaised, lineWidth: 2))
+                            .shadow(color: color.opacity(0.28), radius: 3)
+                            .offset(x: markerOffset(for: port, width: proxy.size.width) - 4)
+                    }
+                }
+                .frame(height: 10)
+            }
+            .frame(height: 10)
+
+            HStack {
+                Text("0")
+                Spacer()
+                Text(ports.count > 1 ? "\(ports.count) 个本机端口" : "端口位置")
+                Spacer()
+                Text("65,535")
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(PVPalette.textTertiary)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func markerOffset(for port: Int, width: CGFloat) -> CGFloat {
+        let ratio = CGFloat(max(0, min(port, 65_535))) / 65_535
+        return max(4, min(width - 4, ratio * width))
     }
 }
 
@@ -1530,8 +1880,6 @@ private struct RelationshipNodeView: View {
     @Binding var selectedNodeID: String?
     @State private var isHovered = false
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         Button {
             selectedNodeID = node.id
@@ -1588,11 +1936,7 @@ private struct RelationshipNodeView: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            if reduceMotion {
-                isHovered = hovering
-            } else {
-                withAnimation(PVMotion.hover) { isHovered = hovering }
-            }
+            isHovered = hovering
         }
         .help(node.explanation)
         .accessibilityLabel(accessibilityText)
@@ -1896,26 +2240,6 @@ private struct TeachingEmptyDetail: View {
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(PVPalette.surfaceBento.opacity(0.55))
-    }
-}
-
-private struct ConceptHelpButton: View {
-    let title: String
-    let text: String
-    @State private var isPresented = false
-
-    var body: some View {
-        Button {
-            isPresented = true
-        } label: {
-            Image(systemName: "questionmark.circle")
-        }
-        .buttonStyle(QuietButtonStyle(size: 28, horizontalPadding: 0))
-        .help(title)
-        .accessibilityLabel("说明：\(title)")
-        .popover(isPresented: $isPresented) {
-            HelpPopover(title: title, text: text)
-        }
     }
 }
 
