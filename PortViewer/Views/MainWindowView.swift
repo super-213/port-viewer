@@ -251,11 +251,22 @@ struct MainWindowView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            toolbarItems
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            toolbarItems
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarItems: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
             Button {
                 sidebarIsVisible.toggle()
             } label: {
                 Label(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏", systemImage: "sidebar.left")
+                    .labelStyle(.iconOnly)
             }
             .buttonStyle(QuietButtonStyle())
             .help(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏")
@@ -273,8 +284,9 @@ struct MainWindowView: View {
                 .accessibilityLabel("搜索应用名称或端口")
             } else {
                 Text("网络扫描")
-                    .font(.headline)
-                    .foregroundStyle(PVPalette.textSecondary)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(PVPalette.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
             }
         }
 
@@ -284,6 +296,7 @@ struct MainWindowView: View {
                     portViewModel.togglePause()
                 } label: {
                     Label(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新", systemImage: portViewModel.isPaused ? "play.fill" : "pause.fill")
+                        .labelStyle(.iconOnly)
                 }
                 .buttonStyle(QuietButtonStyle())
                 .help(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
@@ -293,6 +306,7 @@ struct MainWindowView: View {
                     portViewModel.refreshNow()
                 } label: {
                     Label("立即刷新", systemImage: "arrow.clockwise")
+                        .labelStyle(.iconOnly)
                 }
                 .buttonStyle(QuietButtonStyle())
                 .disabled(portViewModel.isRefreshing)
@@ -302,9 +316,11 @@ struct MainWindowView: View {
 
             SettingsLink {
                 Label("设置", systemImage: "gearshape")
+                    .labelStyle(.iconOnly)
             }
             .buttonStyle(QuietButtonStyle())
             .help("设置")
+            .accessibilityLabel("设置")
         }
     }
 
