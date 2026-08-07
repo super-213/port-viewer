@@ -59,10 +59,10 @@ enum SidebarScope: String, CaseIterable, Identifiable {
 
     var explanation: String {
         switch self {
-        case .all: return "所有端口和网络连接"
-        case .waiting: return "应用正在等待连接"
-        case .connections: return "存在建立中、已建立或关闭中的连接"
-        case .other: return "UDP 及暂时无法归类的活动"
+        case .all: return L10n.string("所有端口和网络连接")
+        case .waiting: return L10n.string("应用正在等待连接")
+        case .connections: return L10n.string("存在建立中、已建立或关闭中的连接")
+        case .other: return L10n.string("UDP 及暂时无法归类的活动")
         }
     }
 }
@@ -126,18 +126,18 @@ enum OverviewBreakdownKind: String, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .waiting: return "等待连接"
-        case .connected: return "连接已建立"
-        case .transitioning: return "正在建立/关闭"
-        case .other: return "其他活动"
+        case .waiting: return L10n.string("等待连接")
+        case .connected: return L10n.string("连接已建立")
+        case .transitioning: return L10n.string("正在建立/关闭")
+        case .other: return L10n.string("其他活动")
         case .tcp: return "TCP"
         case .udp: return "UDP"
         case .ipv4: return "IPv4"
         case .ipv6: return "IPv6"
-        case .unknownIP: return "未知格式"
-        case .localOnly: return "仅这台 Mac"
-        case .networkPossible: return "可能被其他设备访问"
-        case .unknownAccess: return "范围不确定"
+        case .unknownIP: return L10n.string("未知格式")
+        case .localOnly: return L10n.string("仅这台 Mac")
+        case .networkPossible: return L10n.string("可能被其他设备访问")
+        case .unknownAccess: return L10n.string("范围不确定")
         }
     }
 }
@@ -389,19 +389,20 @@ final class MainWindowViewModel {
     }
 
     var emptyStateTitle: String {
-        if !searchText.isEmpty { return "没有找到“\(searchText)”" }
-        if hasActiveFilters { return "当前条件下没有网络活动" }
-        return scope == .waiting ? "当前没有应用在等待连接" : "当前没有网络活动"
+        if !searchText.isEmpty { return L10n.format("没有找到“%@”", searchText) }
+        if hasActiveFilters { return L10n.string("当前条件下没有网络活动") }
+        return L10n.string(scope == .waiting ? "当前没有应用在等待连接" : "当前没有网络活动")
     }
 
     var emptyStateDescription: String {
         if !searchText.isEmpty {
-            return "没有应用名称、端口或进程编号匹配当前搜索与筛选条件。"
+            return L10n.string("没有应用名称、端口或进程编号匹配当前搜索与筛选条件。")
         }
         if hasActiveFilters {
-            return "没有找到“\(activeFilterLabels.joined(separator: "、"))”的网络活动。"
+            let labels = activeFilterLabels.map(L10n.string).joined(separator: L10n.string("、"))
+            return L10n.format("没有找到“%@”的网络活动。", labels)
         }
-        return "系统查询没有返回这一类 TCP 或 UDP 记录。"
+        return L10n.string("系统查询没有返回这一类 TCP 或 UDP 记录。")
     }
 
     func clearFilter(_ label: String) {

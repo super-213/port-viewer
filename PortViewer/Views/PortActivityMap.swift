@@ -40,7 +40,7 @@ struct PortActivityMap: View {
             HStack {
                 Text("0")
                 Spacer()
-                Text("每格 \(PortMapLayout.bucketSize) 个端口")
+                Text(L10n.format("每格 %lld 个端口", PortMapLayout.bucketSize))
                 Spacer()
                 Text("65,535")
             }
@@ -49,7 +49,7 @@ struct PortActivityMap: View {
         }
         .help("从左到右固定映射 0 到 65,535。每个格子代表 512 个连续端口；有边缘高亮的格子表示当前筛选条件下存在活动。")
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("端口地图，共 \(itemCount) 项可见活动")
+        .accessibilityLabel(L10n.format("端口地图，共 %lld 项可见活动", itemCount))
     }
 
     private func legend(_ title: String, color: Color) -> some View {
@@ -61,7 +61,7 @@ struct PortActivityMap: View {
                         .strokeBorder(color.opacity(0.86), lineWidth: 1)
                 }
                 .frame(width: 11, height: 11)
-            Text(title)
+            Text(L10n.string(title))
                 .font(.callout)
                 .foregroundStyle(PVPalette.textSecondary)
         }
@@ -100,7 +100,9 @@ private struct PortMapCell: View {
                 }
                 .help(helpText)
                 .accessibilityLabel(accessibilityText)
-                .accessibilityHint(bucket.items.count == 1 ? "打开这项活动的详情" : "打开此区间的活动列表")
+                .accessibilityHint(L10n.string(
+                    bucket.items.count == 1 ? "打开这项活动的详情" : "打开此区间的活动列表"
+                ))
                 .popover(isPresented: $showsPicker, arrowEdge: .bottom) {
                     PortMapBucketPopover(
                         bucket: bucket,
@@ -160,18 +162,25 @@ private struct PortMapCell: View {
     }
 
     private var helpText: String {
-        "端口 \(bucket.rangeDescription) · \(bucket.items.count) 项活动 · \(portSummary)"
+        L10n.format("端口 %@ · %lld 项活动 · %@", bucket.rangeDescription, bucket.items.count, portSummary)
     }
 
     private var accessibilityText: String {
-        "端口区间 \(bucket.rangeDescription)，\(activityClass?.title ?? "无")，\(bucket.items.count) 项活动"
+        L10n.format(
+            "端口区间 %@，%@，%lld 项活动",
+            bucket.rangeDescription,
+            activityClass?.title ?? L10n.string("无"),
+            bucket.items.count
+        )
     }
 
     private var portSummary: String {
         let ports = bucket.ports
-        guard !ports.isEmpty else { return "没有活动" }
-        let visible = ports.prefix(6).map(String.init).joined(separator: "、")
-        return ports.count > 6 ? "端口 \(visible) 等" : "端口 \(visible)"
+        guard !ports.isEmpty else { return L10n.string("没有活动") }
+        let visible = ports.prefix(6).map(String.init).joined(separator: L10n.string("、"))
+        return ports.count > 6
+            ? L10n.format("端口 %@ 等", visible)
+            : L10n.format("端口 %@", visible)
     }
 }
 
@@ -194,10 +203,10 @@ private enum PortMapActivityClass: Hashable {
 
     var title: String {
         switch self {
-        case .waiting: "等待连接"
-        case .connected: "连接活动"
-        case .other: "其他网络活动"
-        case .mixed: "混合活动"
+        case .waiting: L10n.string("等待连接")
+        case .connected: L10n.string("连接活动")
+        case .other: L10n.string("其他网络活动")
+        case .mixed: L10n.string("混合活动")
         }
     }
 
@@ -238,9 +247,9 @@ private struct PortMapBucketPopover: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("端口 \(bucket.rangeDescription)")
+                    Text(L10n.format("端口 %@", bucket.rangeDescription))
                         .font(.headline)
-                    Text("\(bucket.items.count) 项活动")
+                    Text(L10n.format("%lld 项活动", bucket.items.count))
                         .font(.callout)
                         .foregroundStyle(PVPalette.textSecondary)
                 }
@@ -281,7 +290,7 @@ private struct PortMapBucketPopover: View {
             }
 
             if bucket.items.count > 8 {
-                Text("另有 \(bucket.items.count - 8) 项，请在主列表中查看")
+                Text(L10n.format("另有 %lld 项，请在主列表中查看", bucket.items.count - 8))
                     .font(.callout)
                     .foregroundStyle(PVPalette.textSecondary)
             }

@@ -57,7 +57,7 @@ final class PortViewModelTests: XCTestCase {
 
         await viewModel.refreshForTesting()
         XCTAssertEqual(viewModel.records, [record], "失败时必须保留上一份快照")
-        XCTAssertEqual(viewModel.state, .failed("lsof 查询失败（退出代码 2）。"))
+        XCTAssertEqual(viewModel.state, .failed(L10n.format("lsof 查询失败（退出代码 %d）。", 2)))
 
         await viewModel.refreshForTesting()
         XCTAssertTrue(viewModel.records.isEmpty)
@@ -65,12 +65,12 @@ final class PortViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.lastSuccessfulUpdate, Date(timeIntervalSince1970: 200))
 
         await viewModel.refreshForTesting()
-        XCTAssertEqual(viewModel.state, .partial("lsof 返回了部分结果；已展示可安全解析的数据。"))
+        XCTAssertEqual(viewModel.state, .partial(L10n.string("lsof 返回了部分结果；已展示可安全解析的数据。")))
         XCTAssertEqual(viewModel.lastSuccessfulUpdate, Date(timeIntervalSince1970: 200), "部分结果不是成功基线")
 
         await viewModel.refreshForTesting()
         XCTAssertEqual(viewModel.records, [record])
-        XCTAssertEqual(viewModel.state, .unavailable("找不到系统工具 /usr/sbin/lsof。请确认 macOS 系统文件完整后重试。"))
+        XCTAssertEqual(viewModel.state, .unavailable(L10n.string("找不到系统工具 /usr/sbin/lsof。请确认 macOS 系统文件完整后重试。")))
     }
 
     func testRepeatedManualRefreshQueuesAtMostOneFollowUp() async {
@@ -238,14 +238,21 @@ final class PortViewModelTests: XCTestCase {
 
         viewModel.prepareToTerminate(otherUserRecord)
         await viewModel.waitForTerminationTaskForTesting()
-        XCTAssertTrue(viewModel.feedback?.message.contains("无法结束其他用户的进程") == true)
+        XCTAssertEqual(
+            viewModel.feedback?.message,
+            L10n.format(
+                "%@ 属于用户 %@。当前版本不申请管理员权限，无法结束其他用户的进程。",
+                otherUserRecord.processName,
+                otherUserRecord.user
+            )
+        )
         let rejectedCallCount = await query.callCount()
         XCTAssertEqual(rejectedCallCount, 0)
 
         viewModel.prepareToTerminate(PortTestFixtures.record())
         await viewModel.waitForTerminationTaskForTesting()
         XCTAssertNil(viewModel.terminationPrompt)
-        XCTAssertEqual(viewModel.feedback?.message, "最新查询结果不完整，无法安全校验进程与端口的关联。请重试。")
+        XCTAssertEqual(viewModel.feedback?.message, L10n.string("最新查询结果不完整，无法安全校验进程与端口的关联。请重试。"))
         let policies = await query.policies()
         XCTAssertEqual(policies, [.fresh])
     }
@@ -264,7 +271,7 @@ final class PortViewModelTests: XCTestCase {
         await viewModel.waitForTerminationTaskForTesting()
 
         XCTAssertNil(viewModel.terminationPrompt)
-        XCTAssertEqual(viewModel.feedback?.message, "进程已在操作前自行退出，未发送任何信号。")
+        XCTAssertEqual(viewModel.feedback?.message, L10n.string("进程已在操作前自行退出，未发送任何信号。"))
         let policies = await query.policies()
         XCTAssertEqual(policies, [.fresh])
     }
@@ -282,7 +289,7 @@ final class PortViewModelTests: XCTestCase {
         viewModel.prepareToTerminate(target)
         await viewModel.waitForTerminationTaskForTesting()
 
-        XCTAssertEqual(viewModel.feedback?.message, "该进程已不再占用所选端口，未发送任何信号。")
+        XCTAssertEqual(viewModel.feedback?.message, L10n.string("该进程已不再占用所选端口，未发送任何信号。"))
         XCTAssertNil(viewModel.terminationPrompt)
     }
 
@@ -301,7 +308,7 @@ final class PortViewModelTests: XCTestCase {
         await viewModel.waitForTerminationTaskForTesting()
 
         XCTAssertEqual(viewModel.feedback?.kind, .success)
-        XCTAssertEqual(viewModel.feedback?.message, "TCP 端口 3000 已释放。")
+        XCTAssertEqual(viewModel.feedback?.message, L10n.format("%@ 端口 %@ 已释放。", "TCP", "3000"))
         let policies = await query.policies()
         XCTAssertEqual(policies, [.fresh, .fresh])
     }
@@ -323,7 +330,7 @@ final class PortViewModelTests: XCTestCase {
         await viewModel.waitForTerminationTaskForTesting()
 
         XCTAssertEqual(viewModel.feedback?.kind, .error)
-        XCTAssertEqual(viewModel.feedback?.message, "权限不足，无法结束该进程。当前版本不申请管理员权限。")
+        XCTAssertEqual(viewModel.feedback?.message, L10n.string("权限不足，无法结束该进程。当前版本不申请管理员权限。"))
         let policies = await query.policies()
         XCTAssertEqual(policies, [.fresh])
     }
@@ -350,7 +357,10 @@ final class PortViewModelTests: XCTestCase {
         viewModel.confirmTermination(forcePrompt)
         await viewModel.waitForTerminationTaskForTesting()
         XCTAssertEqual(viewModel.feedback?.kind, .warning)
-        XCTAssertTrue(viewModel.feedback?.message.contains("无法验证端口状态") == true)
+        XCTAssertEqual(
+            viewModel.feedback?.message,
+            L10n.format("信号已发送，但无法验证端口状态：%@", LsofQueryError.executionFailed(3).localizedDescription)
+        )
         let policies = await query.policies()
         XCTAssertEqual(policies, [.fresh, .fresh, .fresh])
     }
@@ -371,7 +381,10 @@ final class PortViewModelTests: XCTestCase {
         await viewModel.waitForTerminationTaskForTesting()
 
         XCTAssertEqual(viewModel.feedback?.kind, .error)
-        XCTAssertTrue(viewModel.feedback?.message.contains("禁止强制结束") == true)
+        XCTAssertEqual(
+            viewModel.feedback?.message,
+            L10n.string("为避免系统异常，Port Viewer 禁止强制结束该关键系统进程。")
+        )
         let callCount = await query.callCount()
         XCTAssertEqual(callCount, 0)
     }

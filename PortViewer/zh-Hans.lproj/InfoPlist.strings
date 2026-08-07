@@ -1,0 +1,2 @@
+"CFBundleDisplayName" = "Port Viewer";
+"NSLocalNetworkUsageDescription" = "Port Viewer 需要访问本地网络，以探测你指定设备的 TCP 端口。";

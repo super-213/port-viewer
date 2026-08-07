@@ -2,13 +2,13 @@ import XCTest
 @testable import PortViewer
 
 final class NetworkPresentationTests: XCTestCase {
-    func testFriendlyTCPStateMappingUsesChinesePrimaryText() {
-        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: "LISTEN"), "等待连接")
-        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: "ESTABLISHED"), "连接已建立")
-        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: "SYN_SENT"), "正在发起连接")
-        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: "TIME_WAIT"), "刚刚结束")
-        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: "FUTURE_STATE"), "其他状态")
-        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: nil, transport: .udp), "正在使用")
+    func testFriendlyTCPStateMappingUsesLocalizedText() {
+        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: "LISTEN"), L10n.string("等待连接"))
+        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: "ESTABLISHED"), L10n.string("连接已建立"))
+        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: "SYN_SENT"), L10n.string("正在发起连接"))
+        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: "TIME_WAIT"), L10n.string("刚刚结束"))
+        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: "FUTURE_STATE"), L10n.string("其他状态"))
+        XCTAssertEqual(PortRecord.friendlyStatusTitle(for: nil, transport: .udp), L10n.string("正在使用"))
     }
 
     func testListenerAccessScopeMappingPreservesUncertainty() {
@@ -31,9 +31,12 @@ final class NetworkPresentationTests: XCTestCase {
         let item = try XCTUnwrap(ReadablePortItem.group([ipv4, ipv6]).first)
 
         XCTAssertEqual(item.rawRecords.count, 2)
-        XCTAssertEqual(item.containsTechnicalRecordText, "包含 2 条技术记录")
+        XCTAssertEqual(item.containsTechnicalRecordText, L10n.format("包含 %lld 条技术记录", 2))
         XCTAssertEqual(item.accessScope, .localOnly)
-        XCTAssertTrue(item.conclusion.contains("等待这台 Mac 上的应用连接"))
+        XCTAssertEqual(
+            item.conclusion,
+            L10n.format("%@ 正在通过端口 %@ 等待这台 Mac 上的应用连接。", item.processName, "3000")
+        )
     }
 
     func testMultipleListenerPortsBecomeOneServiceActivityWithinTheSameScope() throws {
@@ -45,12 +48,15 @@ final class NetworkPresentationTests: XCTestCase {
 
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(item.localPorts, [3_000, 8_080])
-        XCTAssertEqual(item.localPortText, "2 个")
-        XCTAssertEqual(item.localPortRelationshipText, "2 个服务端口")
-        XCTAssertEqual(item.activitySummaryText, "2 个服务端口")
+        XCTAssertEqual(item.localPortText, L10n.format("%lld 个", 2))
+        XCTAssertEqual(item.localPortRelationshipText, L10n.format("%lld 个服务端口", 2))
+        XCTAssertEqual(item.activitySummaryText, L10n.format("%lld 个服务端口", 2))
         XCTAssertEqual(item.topologyKind, .multipleServicePorts)
-        XCTAssertTrue(item.conclusion.contains("通过 2 个服务端口"))
-        XCTAssertTrue(item.meaningMessages.contains { $0.contains("端口数量本身不代表异常") })
+        XCTAssertEqual(
+            item.conclusion,
+            L10n.format("%@ 正在通过 %lld 个服务端口等待这台 Mac 上的应用连接。", item.processName, 2)
+        )
+        XCTAssertTrue(item.meaningMessages.contains(L10n.string("同一应用可以为不同功能使用多个服务端口；端口数量本身不代表异常。")))
     }
 
     func testSharedListenerAcrossProcessesBecomesOneExpandableServiceGroup() throws {
@@ -93,10 +99,24 @@ final class NetworkPresentationTests: XCTestCase {
         XCTAssertEqual(connectionItem.connectionCount, 2)
         XCTAssertEqual(connectionItem.remoteTargetCount, 2)
         XCTAssertEqual(connectionItem.localPorts, [53_124])
-        XCTAssertEqual(connectionItem.activitySummaryText, "2 条连接 · 2 个目标")
+        XCTAssertEqual(
+            connectionItem.activitySummaryText,
+            L10n.format("%lld 条连接 · %@", 2, L10n.format("%lld 个目标", 2))
+        )
         XCTAssertEqual(connectionItem.topologyKind, .onePortToMultipleTargets)
-        XCTAssertTrue(connectionItem.conclusion.contains("共同使用本机端口 53124"))
-        XCTAssertTrue(connectionItem.meaningMessages.contains { $0.contains("相同端口不代表同一连接") })
+        XCTAssertEqual(
+            connectionItem.conclusion,
+            L10n.format(
+                "%@ 与 %@ 之间有 %lld 条已建立连接，%@。",
+                connectionItem.processName,
+                L10n.format("%lld 个不同目标", 2),
+                2,
+                L10n.format("共同使用本机端口 %lld", 53_124)
+            )
+        )
+        XCTAssertTrue(connectionItem.meaningMessages.contains(
+            L10n.format("本机端口 %lld 同时出现在 %lld 条连接中，因为连接对象不同；相同端口不代表同一连接。", 53_124, 2)
+        ))
     }
 
     func testMultipleLocalPortsToOneTargetBecomeOneReadableActivity() throws {
@@ -122,11 +142,22 @@ final class NetworkPresentationTests: XCTestCase {
         XCTAssertEqual(item.connectionCount, 2)
         XCTAssertEqual(item.remoteEndpoints, ["198.18.0.4:443"])
         XCTAssertEqual(item.localPorts, [50_490, 50_578])
-        XCTAssertEqual(item.localPortText, "2 个")
-        XCTAssertEqual(item.connectionDisplay, "连接到 198.18.0.4:443 · 2 条")
+        XCTAssertEqual(item.localPortText, L10n.format("%lld 个", 2))
+        XCTAssertEqual(item.connectionDisplay, L10n.format("连接到 %@%@", "198.18.0.4:443", L10n.format(" · %lld 条", 2)))
         XCTAssertEqual(item.topologyKind, .multiplePortsToOneTarget)
-        XCTAssertTrue(item.conclusion.contains("使用 2 个本机连接端口"))
-        XCTAssertTrue(item.meaningMessages.contains { $0.contains("不是对外开放的服务") })
+        XCTAssertEqual(
+            item.conclusion,
+            L10n.format(
+                "%@ 与 %@ 之间有 %lld 条已建立连接，%@。",
+                item.processName,
+                "198.18.0.4:443",
+                2,
+                L10n.format("使用 %lld 个本机连接端口", 2)
+            )
+        )
+        XCTAssertTrue(item.meaningMessages.contains(
+            L10n.string("同一应用可以同时建立多条独立连接；这些本机连接端口不是对外开放的服务。")
+        ))
     }
 
     func testRawRecordIdentityRemainsStableWhenOnlyTCPStateChanges() {
@@ -170,10 +201,13 @@ final class NetworkPresentationTests: XCTestCase {
         let tcpItem = try XCTUnwrap(ReadablePortItem.group([tcp]).first)
         let udpItem = try XCTUnwrap(ReadablePortItem.group([udp]).first)
 
-        XCTAssertEqual(tcpItem.friendlyStatusTitle, "连接已建立")
-        XCTAssertTrue(tcpItem.meaningMessages[0].contains("不代表此刻一定在传输数据"))
-        XCTAssertEqual(udpItem.friendlyStatusTitle, "正在使用")
-        XCTAssertTrue(udpItem.conclusion.contains("无固定连接的数据"))
+        XCTAssertEqual(tcpItem.friendlyStatusTitle, L10n.string("连接已建立"))
+        XCTAssertEqual(tcpItem.meaningMessages[0], L10n.string("两端已建立连接并具备交换数据的条件，但不代表此刻一定在传输数据。"))
+        XCTAssertEqual(udpItem.friendlyStatusTitle, L10n.string("正在使用"))
+        XCTAssertEqual(
+            udpItem.conclusion,
+            L10n.format("%@ 正在使用 UDP 端口 %@ 发送或接收无固定连接的数据。", udpItem.processName, "5353")
+        )
     }
 
     func testListenerActivitySnapshotReportsAppearedAndEndedConnections() throws {
@@ -203,8 +237,11 @@ final class NetworkPresentationTests: XCTestCase {
         ))
         XCTAssertEqual(summary.connectionCount, 1)
         XCTAssertEqual(summary.remoteEndpoints, ["127.0.0.1:53124"])
-        XCTAssertEqual(summary.currentDescription, "当前有 1 条连接活动")
-        XCTAssertEqual(summary.inlineDescription, "刚发现 1 条新连接 · 当前 1 条")
+        XCTAssertEqual(summary.currentDescription, L10n.format("当前有 %lld 条连接活动", 1))
+        XCTAssertEqual(
+            summary.inlineDescription,
+            L10n.format("%@ · 当前 %lld 条", L10n.format("刚发现 %lld 条新连接", 1), 1)
+        )
 
         XCTAssertEqual(
             baseline.changes(comparedTo: active, observedAt: observedAt)[key]?.kind,

@@ -78,9 +78,9 @@ struct LsofParser: Sendable {
                     process = nil
                 }
             case "c":
-                process?.command = value.isEmpty ? "未知进程" : value
+                process?.command = value.isEmpty ? L10n.string("未知进程") : value
             case "u":
-                process?.uid = value.isEmpty ? "未知" : value
+                process?.uid = value.isEmpty ? L10n.string("未知") : value
             case "L":
                 process?.login = value.isEmpty ? nil : value
             case "R":

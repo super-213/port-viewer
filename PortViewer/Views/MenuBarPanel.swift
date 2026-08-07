@@ -29,9 +29,9 @@ struct StatusItemLabel: View {
     }
 
     private var accessibilityLabel: String {
-        if portViewModel.isPaused { return "Port Viewer，自动刷新已暂停" }
-        if portViewModel.state.issueMessage != nil { return "Port Viewer，查询异常" }
-        return "Port Viewer，等待连接 \(portViewModel.listeningCount) 条"
+        if portViewModel.isPaused { return L10n.string("Port Viewer，自动刷新已暂停") }
+        if portViewModel.state.issueMessage != nil { return L10n.string("Port Viewer，查询异常") }
+        return L10n.format("Port Viewer，等待连接 %lld 条", portViewModel.listeningCount)
     }
 }
 
@@ -136,12 +136,12 @@ struct MenuBarPanel: View {
                 .foregroundStyle(color)
             VStack(alignment: .leading, spacing: 0) {
                 Text(String(value)).font(.headline).monospacedDigit()
-                Text(title).font(.caption).foregroundStyle(PVPalette.textSecondary)
+                Text(L10n.string(title)).font(.caption).foregroundStyle(PVPalette.textSecondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title) \(value) 个")
+        .accessibilityLabel(L10n.format("%@ %lld 个", L10n.string(title), value))
     }
 
     private var railSeparator: some View {
@@ -163,7 +163,9 @@ struct MenuBarPanel: View {
                         .font(.title3)
                         .foregroundStyle(PVPalette.neutral)
                 }
-                Text(viewModel.searchText.isEmpty ? "当前没有应用在等待连接" : "没有匹配的等待连接活动")
+                Text(L10n.string(
+                    viewModel.searchText.isEmpty ? "当前没有应用在等待连接" : "没有匹配的等待连接活动"
+                ))
                     .font(.callout)
                 if !viewModel.searchText.isEmpty {
                     Button("清除搜索") { viewModel.clearSearch() }
@@ -256,6 +258,10 @@ private struct MenuBarRecordButton: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .accessibilityLabel("端口 \(record.localPortText)，\(record.processName)，正在等待连接")
+        .accessibilityLabel(L10n.format(
+            "端口 %@，%@，正在等待连接",
+            record.localPortText,
+            record.processName
+        ))
     }
 }

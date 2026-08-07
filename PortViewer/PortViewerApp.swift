@@ -102,19 +102,19 @@ struct PortViewerCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .textEditing) {
-            Button("查找应用或端口…") {
+            Button(L10n.string("查找应用或端口…")) {
                 NotificationCenter.default.post(name: .focusPortSearch, object: nil)
             }
             .keyboardShortcut("f", modifiers: .command)
         }
 
         CommandGroup(after: .toolbar) {
-            Button("立即刷新") {
+            Button(L10n.string("立即刷新")) {
                 portViewModel.refreshNow()
             }
             .keyboardShortcut("r", modifiers: .command)
 
-            Button(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新") {
+            Button(L10n.string(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")) {
                 portViewModel.togglePause()
             }
         }

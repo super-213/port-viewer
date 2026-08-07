@@ -33,7 +33,7 @@ struct NetworkScanView: View {
                     Section("扫描目标") {
                         Picker("范围", selection: $viewModel.scope) {
                             ForEach(NetworkScanScope.allCases) { scope in
-                                Text(scope.rawValue).tag(scope)
+                                Text(L10n.string(scope.rawValue)).tag(scope)
                             }
                         }
                         .pickerStyle(.segmented)
@@ -42,13 +42,13 @@ struct NetworkScanView: View {
                         TextField(viewModel.scope.targetPrompt, text: $viewModel.target)
                             .textFieldStyle(.roundedBorder)
                             .disabled(viewModel.isRunning)
-                            .accessibilityLabel(viewModel.scope == .host ? "目标主机" : "目标 IPv4 网段")
+                            .accessibilityLabel(L10n.string(viewModel.scope == .host ? "目标主机" : "目标 IPv4 网段"))
                     }
 
                     Section("TCP 端口") {
                         Picker("端口范围", selection: $viewModel.portPreset) {
                             ForEach(ScanPortPreset.allCases) { preset in
-                                Text(preset.rawValue).tag(preset)
+                                Text(L10n.string(preset.rawValue)).tag(preset)
                             }
                         }
                         .disabled(viewModel.isRunning)
@@ -79,7 +79,7 @@ struct NetworkScanView: View {
                         .font(.callout)
                         .foregroundStyle(PVPalette.danger)
                         .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel("输入错误：\(validationMessage)")
+                        .accessibilityLabel(L10n.format("输入错误：%@", validationMessage))
                 }
 
                 HStack(spacing: 8) {
@@ -168,16 +168,23 @@ struct NetworkScanView: View {
                 .progressViewStyle(.linear)
                 .frame(maxWidth: 460)
                 .accessibilityLabel("扫描进度")
-                .accessibilityValue("已完成 \(viewModel.progress.completedCount) / \(viewModel.progress.totalCount)")
+                .accessibilityValue(L10n.format(
+                    "已完成 %lld / %lld",
+                    viewModel.progress.completedCount,
+                    viewModel.progress.totalCount
+                ))
 
             if let endpoint = viewModel.progress.currentEndpoint {
-                Text("正在处理 \(endpoint)")
+                Text(L10n.format("正在处理 %@", endpoint))
                     .font(.callout.monospaced())
                     .foregroundStyle(PVPalette.textSecondary)
                     .lineLimit(1)
             }
 
-            Label("已发现 \(viewModel.progress.openCount) 个开放端口", systemImage: "checkmark.circle")
+            Label(
+                L10n.format("已发现 %lld 个开放端口", viewModel.progress.openCount),
+                systemImage: "checkmark.circle"
+            )
                 .font(.callout.weight(.medium))
                 .foregroundStyle(PVPalette.waiting)
         }
@@ -228,7 +235,7 @@ struct NetworkScanView: View {
                 .width(min: 100, ideal: 120, max: 150)
             }
             .tableStyle(.inset(alternatesRowBackgrounds: true))
-            .accessibilityLabel("开放端口扫描结果，共 \(report.openPorts.count) 条")
+            .accessibilityLabel(L10n.format("开放端口扫描结果，共 %lld 条", report.openPorts.count))
         }
     }
 

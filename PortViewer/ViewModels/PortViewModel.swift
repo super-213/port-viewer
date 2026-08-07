@@ -75,29 +75,34 @@ struct TerminationPrompt: Identifiable, Equatable {
     var id: String { "\(record.id)|\(stage)" }
 
     var title: String {
-        stage == .standard ? "结束 \(record.processName)？" : "强制结束 \(record.processName)？"
+        stage == .standard
+            ? L10n.format("结束 %@？", record.processName)
+            : L10n.format("强制结束 %@？", record.processName)
     }
 
     var actionTitle: String {
-        stage == .standard ? "结束进程" : "强制结束"
+        L10n.string(stage == .standard ? "结束进程" : "强制结束")
     }
 
     var message: String {
         var lines = [
-            "PID \(record.pid) · \(record.transport.rawValue) 端口 \(record.localPortText)",
-            "结束的是整个进程，而不只是这个端口。"
+            L10n.format("PID %d · %@ 端口 %@", record.pid, record.transport.rawValue, record.localPortText),
+            L10n.string("结束的是整个进程，而不只是这个端口。")
         ]
         if otherConnectionCount > 0 {
-            lines.append("该进程的另外 \(otherConnectionCount) 条端口或连接也会一并关闭。")
+            lines.append(L10n.format("该进程的另外 %lld 条端口或连接也会一并关闭。", otherConnectionCount))
         }
         if !otherOccupants.isEmpty {
-            lines.append("同一端口还由 \(otherOccupants.joined(separator: "、")) 占用；本次只结束当前选中的进程。")
+            lines.append(L10n.format(
+                "同一端口还由 %@ 占用；本次只结束当前选中的进程。",
+                otherOccupants.joined(separator: L10n.string("、"))
+            ))
         }
         if isCritical {
-            lines.append("这是受保护的系统关键进程；不会允许强制结束。")
+            lines.append(L10n.string("这是受保护的系统关键进程；不会允许强制结束。"))
         }
         if stage == .force {
-            lines.append("强制结束可能造成未保存数据丢失。")
+            lines.append(L10n.string("强制结束可能造成未保存数据丢失。"))
         }
         return lines.joined(separator: "\n")
     }
@@ -303,7 +308,11 @@ final class PortViewModel {
         guard staleRecord.belongsToCurrentUser else {
             feedback = OperationFeedback(
                 kind: .error,
-                message: "\(staleRecord.processName) 属于用户 \(staleRecord.user)。当前版本不申请管理员权限，无法结束其他用户的进程。"
+                message: L10n.format(
+                    "%@ 属于用户 %@。当前版本不申请管理员权限，无法结束其他用户的进程。",
+                    staleRecord.processName,
+                    staleRecord.user
+                )
             )
             return
         }
@@ -312,7 +321,7 @@ final class PortViewModel {
             let snapshot = try await queryService.query(policy: .fresh)
             _ = apply(snapshot)
             guard !snapshot.isPartial else {
-                feedback = OperationFeedback(kind: .error, message: "最新查询结果不完整，无法安全校验进程与端口的关联。请重试。")
+                feedback = OperationFeedback(kind: .error, message: L10n.string("最新查询结果不完整，无法安全校验进程与端口的关联。请重试。"))
                 return
             }
 
@@ -321,8 +330,8 @@ final class PortViewModel {
                 feedback = OperationFeedback(
                     kind: .information,
                     message: processStillExists
-                        ? "该进程已不再占用所选端口，未发送任何信号。"
-                        : "进程已在操作前自行退出，未发送任何信号。"
+                        ? L10n.string("该进程已不再占用所选端口，未发送任何信号。")
+                        : L10n.string("进程已在操作前自行退出，未发送任何信号。")
                 )
                 return
             }
@@ -342,7 +351,7 @@ final class PortViewModel {
         } catch {
             feedback = OperationFeedback(
                 kind: .error,
-                message: "无法完成操作前校验：\(error.localizedDescription) 未发送任何信号。"
+                message: L10n.format("无法完成操作前校验：%@ 未发送任何信号。", error.localizedDescription)
             )
         }
     }
@@ -352,7 +361,7 @@ final class PortViewModel {
 
         let force = prompt.stage == .force
         if force && prompt.isCritical {
-            feedback = OperationFeedback(kind: .error, message: "为避免系统异常，Port Viewer 禁止强制结束该关键系统进程。")
+            feedback = OperationFeedback(kind: .error, message: L10n.string("为避免系统异常，Port Viewer 禁止强制结束该关键系统进程。"))
             return
         }
 
@@ -369,7 +378,7 @@ final class PortViewModel {
             _ = apply(snapshot)
 
             guard !snapshot.isPartial else {
-                feedback = OperationFeedback(kind: .warning, message: "信号已发送，但最新查询不完整，暂时无法验证端口状态。请重试刷新。")
+                feedback = OperationFeedback(kind: .warning, message: L10n.string("信号已发送，但最新查询不完整，暂时无法验证端口状态。请重试刷新。"))
                 return
             }
 
@@ -377,14 +386,20 @@ final class PortViewModel {
             let currentOccupants = snapshot.records.filter { $0.matchesPort(prompt.record) }
 
             if !originalStillOccupies, currentOccupants.isEmpty {
-                feedback = OperationFeedback(kind: .success, message: "\(prompt.record.transport.rawValue) 端口 \(prompt.record.localPortText) 已释放。")
+                feedback = OperationFeedback(
+                    kind: .success,
+                    message: L10n.format("%@ 端口 %@ 已释放。", prompt.record.transport.rawValue, prompt.record.localPortText)
+                )
             } else if !originalStillOccupies {
                 feedback = OperationFeedback(
                     kind: .warning,
-                    message: "原进程已结束，但端口已被 \(currentOccupants.first?.processName ?? "另一个进程") 重新占用。"
+                    message: L10n.format(
+                        "原进程已结束，但端口已被 %@ 重新占用。",
+                        currentOccupants.first?.processName ?? L10n.string("另一个进程")
+                    )
                 )
             } else if force {
-                feedback = OperationFeedback(kind: .error, message: "强制结束后进程仍占用该端口，操作超时。请刷新后检查权限与进程状态。")
+                feedback = OperationFeedback(kind: .error, message: L10n.string("强制结束后进程仍占用该端口，操作超时。请刷新后检查权限与进程状态。"))
             } else {
                 let liveRecord = currentOccupants.first { $0.pid == prompt.record.pid } ?? prompt.record
                 terminationPrompt = TerminationPrompt(
@@ -396,9 +411,9 @@ final class PortViewModel {
                 )
             }
         } catch is CancellationError {
-            feedback = OperationFeedback(kind: .warning, message: "进程结束操作已取消，暂时无法验证端口状态。")
+            feedback = OperationFeedback(kind: .warning, message: L10n.string("进程结束操作已取消，暂时无法验证端口状态。"))
         } catch {
-            feedback = OperationFeedback(kind: .warning, message: "信号已发送，但无法验证端口状态：\(error.localizedDescription)")
+            feedback = OperationFeedback(kind: .warning, message: L10n.format("信号已发送，但无法验证端口状态：%@", error.localizedDescription))
         }
     }
 
@@ -540,7 +555,7 @@ final class PortViewModel {
         if isPaused {
             nextState = .paused
         } else if snapshot.isPartial {
-            nextState = .partial("lsof 返回了部分结果；已展示可安全解析的数据。")
+            nextState = .partial(L10n.string("lsof 返回了部分结果；已展示可安全解析的数据。"))
         } else {
             nextState = snapshot.records.isEmpty ? .empty : .ready
         }

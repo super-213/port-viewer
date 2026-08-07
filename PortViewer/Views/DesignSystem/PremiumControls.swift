@@ -271,9 +271,9 @@ struct PremiumPicker<Option: Hashable>: View {
                     selection = option
                 } label: {
                     if selection == option {
-                        Label(optionText(option), systemImage: "checkmark")
+                        Label(L10n.string(optionText(option)), systemImage: "checkmark")
                     } else {
-                        Text(optionText(option))
+                        Text(L10n.string(optionText(option)))
                     }
                 }
             }
@@ -284,7 +284,7 @@ struct PremiumPicker<Option: Hashable>: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(PVPalette.textSecondary)
                 }
-                Text(optionText(selection))
+                Text(L10n.string(optionText(selection)))
                     .font(.callout)
                     .foregroundStyle(PVPalette.textPrimary)
                     .lineLimit(1)
@@ -309,10 +309,10 @@ struct PremiumPicker<Option: Hashable>: View {
             isHovered = hovering
         }
         .opacity(isEnabled ? 1 : 0.52)
-        .help("选择\(title)")
-        .accessibilityLabel(title)
-        .accessibilityValue(optionText(selection))
-        .accessibilityHint("打开菜单以选择其他选项")
+        .help(L10n.format("选择%@", L10n.string(title)))
+        .accessibilityLabel(L10n.string(title))
+        .accessibilityValue(L10n.string(optionText(selection)))
+        .accessibilityHint(L10n.string("打开菜单以选择其他选项"))
     }
 }
 

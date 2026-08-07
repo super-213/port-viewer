@@ -24,14 +24,14 @@ struct SettingsView: View {
                     detail: "保持更快的数据反馈",
                     options: [3.0, 5.0, 10.0, 30.0],
                     selection: $foregroundRefreshInterval,
-                    text: { "\(Int($0)) 秒" }
+                    text: { L10n.format("%lld 秒", Int($0)) }
                 )
                 settingPickerRow(
                     title: "窗口和菜单均收起时",
                     detail: "降低后台查询频率",
                     options: [0.0, 10.0, 30.0, 60.0],
                     selection: $backgroundRefreshInterval,
-                    text: { $0 == 0 ? "仅按需刷新" : "\(Int($0)) 秒" }
+                    text: { $0 == 0 ? L10n.string("仅按需刷新") : L10n.format("%lld 秒", Int($0)) }
                 )
                 Text("展开菜单栏面板时会立即刷新。连续多次没有变化时会自动降低查询频率；检测到变化或重新展开窗口后恢复快速刷新。暂停后不会保留后台定时唤醒。")
                     .font(.caption)
@@ -73,9 +73,9 @@ struct SettingsView: View {
     ) -> some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(L10n.string(title))
                     .foregroundStyle(PVPalette.textPrimary)
-                Text(detail)
+                Text(L10n.string(detail))
                     .font(.caption)
                     .foregroundStyle(PVPalette.textTertiary)
             }
@@ -92,7 +92,7 @@ struct SettingsView: View {
 
     private func privacyRow(_ text: String, symbol: String) -> some View {
         Label {
-            Text(text)
+            Text(L10n.string(text))
                 .font(.callout)
                 .foregroundStyle(PVPalette.textSecondary)
         } icon: {

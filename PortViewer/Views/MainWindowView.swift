@@ -103,7 +103,7 @@ struct MainWindowView: View {
                 ForEach(SidebarScope.allCases) { item in
                     Label {
                         HStack(spacing: 8) {
-                            Text(item.rawValue)
+                            Text(L10n.string(item.rawValue))
                                 .lineLimit(1)
                             Spacer(minLength: 4)
                             Text(String(viewModel.count(for: item)))
@@ -119,7 +119,12 @@ struct MainWindowView: View {
                     }
                     .tag(MainSidebarPage.activity(item))
                     .help(item.explanation)
-                    .accessibilityLabel("\(item.rawValue)，\(viewModel.count(for: item)) 条。\(item.explanation)")
+                    .accessibilityLabel(L10n.format(
+                        "%@，%lld 条。%@",
+                        L10n.string(item.rawValue),
+                        viewModel.count(for: item),
+                        item.explanation
+                    ))
                 }
             }
 
@@ -265,12 +270,12 @@ struct MainWindowView: View {
             Button {
                 sidebarIsVisible.toggle()
             } label: {
-                Label(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏", systemImage: "sidebar.left")
+                Label(L10n.string(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏"), systemImage: "sidebar.left")
                     .labelStyle(.iconOnly)
             }
             .buttonStyle(QuietButtonStyle())
-            .help(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏")
-            .accessibilityLabel(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏")
+            .help(L10n.string(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏"))
+            .accessibilityLabel(L10n.string(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏"))
         }
 
         ToolbarItem(placement: .principal) {
@@ -295,12 +300,12 @@ struct MainWindowView: View {
                 Button {
                     portViewModel.togglePause()
                 } label: {
-                    Label(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新", systemImage: portViewModel.isPaused ? "play.fill" : "pause.fill")
+                    Label(L10n.string(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新"), systemImage: portViewModel.isPaused ? "play.fill" : "pause.fill")
                         .labelStyle(.iconOnly)
                 }
                 .buttonStyle(QuietButtonStyle())
-                .help(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
-                .accessibilityLabel(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
+                .help(L10n.string(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新"))
+                .accessibilityLabel(L10n.string(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新"))
 
                 Button {
                     portViewModel.refreshNow()
@@ -393,7 +398,7 @@ private struct ActivityOverview: View {
 
                     Picker("趋势时间范围", selection: $selectedTimeRange) {
                         ForEach(OverviewTimeRange.allCases) { range in
-                            Text(range.title).tag(range)
+                            Text(L10n.string(range.title)).tag(range)
                         }
                     }
                     .labelsHidden()
@@ -419,7 +424,7 @@ private struct ActivityOverview: View {
                     metric(
                         title: "当前活动",
                         value: snapshot.itemCount,
-                        detail: "\(snapshot.recordCount) 条系统记录",
+                        detail: L10n.format("%lld 条系统记录", snapshot.recordCount),
                         symbol: "list.bullet",
                         color: PVPalette.accentPrimary,
                         help: "合并同一服务的重复底层记录后得到的活动项目数"
@@ -548,9 +553,9 @@ private struct ActivityOverview: View {
     }
 
     private var updateDescription: String {
-        guard let update = lastSuccessfulUpdate else { return "等待首次查询" }
+        guard let update = lastSuccessfulUpdate else { return L10n.string("等待首次查询") }
         let elapsed = Date().timeIntervalSince(update)
-        if elapsed < 10 { return "刚刚更新" }
+        if elapsed < 10 { return L10n.string("刚刚更新") }
         return update.formatted(.relative(presentation: .named))
     }
 
@@ -560,7 +565,7 @@ private struct ActivityOverview: View {
                 .foregroundStyle(item == .waiting ? PVPalette.waiting : item == .connections ? PVPalette.connected : PVPalette.neutral)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.rawValue)
+                Text(L10n.string(item.rawValue))
                     .font(.callout.weight(.semibold))
                 Text(item.explanation)
                     .font(.callout)
@@ -609,12 +614,12 @@ private struct OverviewPanel<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Label(title, systemImage: symbol)
+                Label(L10n.string(title), systemImage: symbol)
                     .font(.headline)
                     .foregroundStyle(PVPalette.textPrimary)
                 Spacer(minLength: 8)
                 if let subtitle {
-                    Text(subtitle)
+                    Text(L10n.string(subtitle))
                         .font(.caption)
                         .foregroundStyle(PVPalette.textTertiary)
                 }
@@ -732,7 +737,7 @@ private struct OverviewTrendPanel: View {
     private func trendLegend(_ title: String, color: Color) -> some View {
         HStack(spacing: 5) {
             Capsule().fill(color).frame(width: 14, height: 3)
-            Text(title)
+            Text(L10n.string(title))
                 .font(.caption)
                 .foregroundStyle(PVPalette.textSecondary)
         }
@@ -760,7 +765,7 @@ private struct OverviewCompositionPanel: View {
 
     private func breakdown(title: String, items: [OverviewBreakdownItem]) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title)
+            Text(L10n.string(title))
                 .font(.callout.weight(.medium))
                 .foregroundStyle(PVPalette.textSecondary)
             OverviewStackedBar(items: items)
@@ -849,7 +854,7 @@ private struct OverviewAccessPanel: View {
             }
 
             if let latest {
-                Text("最近查询耗时 \(latest.queryDuration.formatted(.number.precision(.fractionLength(2)))) 秒")
+                Text(L10n.format("最近查询耗时 %.2f 秒", latest.queryDuration))
                     .font(.caption)
                     .foregroundStyle(PVPalette.textTertiary)
                     .monospacedDigit()
@@ -867,7 +872,7 @@ private struct OverviewAccessPanel: View {
                 Text(String(value))
                     .font(.callout.monospacedDigit().weight(.semibold))
                     .foregroundStyle(PVPalette.textPrimary)
-                Text(title)
+                Text(L10n.string(title))
                     .font(.caption)
                     .foregroundStyle(PVPalette.textTertiary)
             }
@@ -972,12 +977,12 @@ private struct OverviewMetricButton: View {
                         .foregroundStyle(PVPalette.textPrimary)
                         .monospacedDigit()
 
-                    Text(title)
+                    Text(L10n.string(title))
                         .font(.callout.weight(.medium))
                         .foregroundStyle(isSelected ? color : PVPalette.textSecondary)
                         .lineLimit(1)
 
-                    Text(detail)
+                    Text(L10n.string(detail))
                         .font(.caption)
                         .foregroundStyle(PVPalette.textTertiary)
                         .lineLimit(1)
@@ -1007,9 +1012,9 @@ private struct OverviewMetricButton: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .help(help)
-        .accessibilityLabel("\(title)，\(value)，\(detail)")
-        .accessibilityHint(isSelected ? "当前正在显示此类活动" : "筛选并显示此类活动")
+        .help(L10n.string(help))
+        .accessibilityLabel(L10n.format("%@，%lld，%@", L10n.string(title), value, L10n.string(detail)))
+        .accessibilityHint(L10n.string(isSelected ? "当前正在显示此类活动" : "筛选并显示此类活动"))
     }
 }
 
@@ -1121,13 +1126,13 @@ private struct FilterBar: View {
                                 clearFilter(label)
                             } label: {
                                 HStack(spacing: 4) {
-                                    Text(label)
+                                    Text(L10n.string(label))
                                     Image(systemName: "xmark")
                                         .font(.caption2)
                                 }
                             }
                             .buttonStyle(FilterChipButtonStyle())
-                            .accessibilityLabel("移除筛选：\(label)")
+                            .accessibilityLabel(L10n.format("移除筛选：%@", L10n.string(label)))
                         }
                         Button("清除全部", action: reset)
                             .buttonStyle(QuietButtonStyle(size: 26, horizontalPadding: 7))
@@ -1205,10 +1210,10 @@ private struct MoreFiltersPopover: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.callout.weight(.medium))
+            Text(L10n.string(title)).font(.callout.weight(.medium))
             content()
                 .frame(maxWidth: .infinity)
-            Text(explanation)
+            Text(L10n.string(explanation))
                 .font(.caption)
                 .foregroundStyle(PVPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1470,9 +1475,9 @@ private struct ProcessGroupDisclosureButton: View {
         .buttonStyle(.plain)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
-        .help(isExpanded ? "收起组成此服务的进程" : "展开组成此服务的进程")
-        .accessibilityLabel(isExpanded ? "收起进程列表" : "展开进程列表")
-        .accessibilityValue(isExpanded ? "已展开" : "已折叠")
+        .help(L10n.string(isExpanded ? "收起组成此服务的进程" : "展开组成此服务的进程"))
+        .accessibilityLabel(L10n.string(isExpanded ? "收起进程列表" : "展开进程列表"))
+        .accessibilityValue(L10n.string(isExpanded ? "已展开" : "已折叠"))
         .accessibilityHint("显示或隐藏组成此服务的具体进程")
     }
 }
@@ -1654,18 +1659,18 @@ private struct CompactTopologyView: View {
 
     private var sourceLabel: String {
         switch item.accessScope {
-        case .localOnly: return "仅本机"
-        case .networkPossible: return "本机/网络"
-        case .unknown: return "来源未知"
+        case .localOnly: return L10n.string("仅本机")
+        case .networkPossible: return L10n.string("本机/网络")
+        case .unknown: return L10n.string("来源未知")
         }
     }
 
     private var sourceColor: Color { item.accessScope == .networkPossible ? PVPalette.warning : PVPalette.neutral }
 
     private var targetLabel: String {
-        if item.remoteTargetCount > 1 { return "\(item.remoteTargetCount) 个目标" }
+        if item.remoteTargetCount > 1 { return L10n.format("%lld 个目标", item.remoteTargetCount) }
         if let endpoint = item.remoteEndpoints.first { return endpoint }
-        return "对象不固定"
+        return L10n.string("对象不固定")
     }
 }
 
@@ -1694,7 +1699,7 @@ private struct CompactTopologyNode: View {
                         .offset(x: 5, y: -5)
                 }
             }
-            Text(label)
+            Text(L10n.string(label))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -1845,22 +1850,32 @@ private struct RecordDetailView: View {
             item.rawRecords.first { $0.pid == process.pid }
         }
         let isAllowed = processRecords.allSatisfy(\.belongsToCurrentUser) && !hasEnded
+        let impactDescription: String
+        if item.processCount > 1 {
+            impactDescription = L10n.format(
+                "此服务由 %lld 个进程共同提供；结束前需要选择具体进程，其他进程不会同时结束。",
+                item.processCount
+            )
+        } else if otherCount > 0 {
+            impactDescription = L10n.format(
+                "结束后，这个应用使用的其他 %lld 个端口或连接也会关闭。",
+                otherCount
+            )
+        } else {
+            impactDescription = L10n.string("结束的是整个进程；操作前会再次确认它仍在使用这个端口。")
+        }
 
         return HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("操作影响")
                     .font(.callout.weight(.medium))
-                Text(item.processCount > 1
-                     ? "此服务由 \(item.processCount) 个进程共同提供；结束前需要选择具体进程，其他进程不会同时结束。"
-                     : otherCount > 0
-                        ? "结束后，这个应用使用的其他 \(otherCount) 个端口或连接也会关闭。"
-                        : "结束的是整个进程；操作前会再次确认它仍在使用这个端口。")
+                Text(impactDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
             if item.processCount > 1 {
-                Menu("选择进程结束…") {
+                Menu(L10n.string("选择进程结束…")) {
                     ForEach(processRecords) { processRecord in
                         Button(role: .destructive) {
                             portViewModel.prepareToTerminate(processRecord)
@@ -1871,8 +1886,8 @@ private struct RecordDetailView: View {
                 }
                 .buttonStyle(DangerButtonStyle())
                 .disabled(portViewModel.isRefreshing || !isAllowed)
-                .help("选择要结束的具体进程；操作前仍会重新校验")
-                .accessibilityHint("展开组成此服务的进程列表")
+                .help(L10n.string("选择要结束的具体进程；操作前仍会重新校验"))
+                .accessibilityHint(L10n.string("展开组成此服务的进程列表"))
             } else {
                 Button("结束进程…", role: .destructive) {
                     portViewModel.prepareToTerminate(record)
@@ -1887,9 +1902,9 @@ private struct RecordDetailView: View {
     }
 
     private func terminationHelp(for record: PortRecord) -> String {
-        if hasEnded { return "这项活动已经结束" }
-        if !record.belongsToCurrentUser { return "该进程属于其他用户，当前版本不会申请管理员权限" }
-        return "操作前会重新校验进程和端口，并显示确认对话框"
+        if hasEnded { return L10n.string("这项活动已经结束") }
+        if !record.belongsToCurrentUser { return L10n.string("该进程属于其他用户，当前版本不会申请管理员权限") }
+        return L10n.string("操作前会重新校验进程和端口，并显示确认对话框")
     }
 }
 
@@ -2043,26 +2058,26 @@ private struct PortStatusOverview: View {
     }
 
     private var statusTitle: String {
-        if hasEnded { return "活动已结束" }
+        if hasEnded { return L10n.string("活动已结束") }
         if let listenerActivity, listenerActivity.connectionCount > 0 {
-            return "有连接进入"
+            return L10n.string("有连接进入")
         }
         return item.friendlyStatusTitle
     }
 
     private var statusSubtitle: String {
-        if hasEnded { return "最后一次观察到的端口信息" }
+        if hasEnded { return L10n.string("最后一次观察到的端口信息") }
         if let listenerActivity {
             return listenerActivity.connectionCount == 0
-                ? "正在监听，暂未发现连接"
-                : "当前观察到 \(listenerActivity.connectionCount) 条连接"
+                ? L10n.string("正在监听，暂未发现连接")
+                : L10n.format("当前观察到 %lld 条连接", listenerActivity.connectionCount)
         }
         switch item.activityKind {
-        case .waiting: return item.accessScope.rawValue
-        case .connected: return "两端已具备交换数据的条件"
-        case .transitioning: return "连接正在建立或关闭"
-        case .other where item.transport == .udp: return "UDP 不保持 TCP 式连接状态"
-        case .other: return "系统返回了其他网络状态"
+        case .waiting: return L10n.string(item.accessScope.rawValue)
+        case .connected: return L10n.string("两端已具备交换数据的条件")
+        case .transitioning: return L10n.string("连接正在建立或关闭")
+        case .other where item.transport == .udp: return L10n.string("UDP 不保持 TCP 式连接状态")
+        case .other: return L10n.string("系统返回了其他网络状态")
         }
     }
 
@@ -2081,16 +2096,16 @@ private struct PortStatusOverview: View {
         if let listenerActivity {
             return .init(
                 symbol: listenerActivity.connectionCount > 0 ? "arrow.down.left" : "hourglass",
-                title: "当前连接",
+                title: L10n.string("当前连接"),
                 value: String(listenerActivity.connectionCount)
             )
         }
         if item.transport == .udp {
-            return .init(symbol: "arrow.left.arrow.right", title: "通信方式", value: "无连接")
+            return .init(symbol: "arrow.left.arrow.right", title: L10n.string("通信方式"), value: L10n.string("无连接"))
         }
         return .init(
             symbol: "link",
-            title: "连接数量",
+            title: L10n.string("连接数量"),
             value: item.connectionCount > 0 ? String(item.connectionCount) : "—"
         )
     }
@@ -2099,14 +2114,14 @@ private struct PortStatusOverview: View {
         if record.isListening {
             switch item.accessScope {
             case .localOnly:
-                return .init(symbol: "laptopcomputer", title: "访问范围", value: "仅本机")
+                return .init(symbol: "laptopcomputer", title: L10n.string("访问范围"), value: L10n.string("仅本机"))
             case .networkPossible:
-                return .init(symbol: "wifi", title: "访问范围", value: "局域网可能")
+                return .init(symbol: "wifi", title: L10n.string("访问范围"), value: L10n.string("局域网可能"))
             case .unknown:
-                return .init(symbol: "questionmark.circle", title: "访问范围", value: "暂不确定")
+                return .init(symbol: "questionmark.circle", title: L10n.string("访问范围"), value: L10n.string("暂不确定"))
             }
         }
-        return .init(symbol: "arrow.up.right", title: "端口角色", value: item.localPortRoleText)
+        return .init(symbol: "arrow.up.right", title: L10n.string("端口角色"), value: item.localPortRoleText)
     }
 
     var body: some View {
@@ -2247,10 +2262,10 @@ private struct PortStatusMetric: View {
                 .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: PVRadius.small))
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(metric.title)
+                Text(L10n.string(metric.title))
                     .font(.caption2)
                     .foregroundStyle(PVPalette.textTertiary)
-                Text(metric.value)
+                Text(L10n.string(metric.value))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(PVPalette.textPrimary)
                     .lineLimit(1)
@@ -2405,11 +2420,11 @@ private struct RelationshipNodeView: View {
                         .font(.title3)
                         .foregroundStyle(PVPalette.accentPrimary)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(node.title)
+                        Text(L10n.string(node.title))
                             .font(.callout.weight(.medium))
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Text(node.subtitle)
+                        Text(L10n.string(node.subtitle))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -2453,7 +2468,7 @@ private struct RelationshipNodeView: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .help(node.explanation)
+        .help(L10n.string(node.explanation))
         .accessibilityLabel(accessibilityText)
         .accessibilityHint("显示这个节点的解释")
     }
@@ -2491,7 +2506,7 @@ private struct HorizontalConnectorView: View {
 
     var body: some View {
         VStack(spacing: 3) {
-            Text(connector.label)
+            Text(L10n.string(connector.label))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -2525,7 +2540,7 @@ private struct VerticalConnectorView: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: connector.bidirectional ? "arrow.up.arrow.down" : "arrow.down")
-            Text(connector.label)
+            Text(L10n.string(connector.label))
                 .font(.caption2)
             if connector.dashed {
                 Text("可能")
@@ -2574,7 +2589,7 @@ private struct TechnicalDetailsView: View {
                 .frame(minHeight: 32)
                 .background(PVPalette.surfaceControl.opacity(0.46), in: RoundedRectangle(cornerRadius: PVRadius.small))
         }
-        .accessibilityHint(isExpanded ? "折叠完整技术参数" : "展开 PID、协议、地址、路径等完整技术参数")
+        .accessibilityHint(L10n.string(isExpanded ? "折叠完整技术参数" : "展开 PID、协议、地址、路径等完整技术参数"))
     }
 
     private var processFields: [TechnicalField] {
@@ -2643,21 +2658,21 @@ private struct TechnicalDetailsView: View {
 
     private func technicalGroup(_ title: String, fields: [TechnicalField]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
+            Text(L10n.string(title))
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), alignment: .topLeading)], alignment: .leading, spacing: 12) {
                 ForEach(fields) { field in
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(field.title)
+                        Text(L10n.string(field.title))
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(field.value)
+                        Text(L10n.string(field.value))
                             .font(field.monospaced ? .system(.callout, design: .monospaced) : .callout)
                             .lineLimit(2)
                             .truncationMode(.middle)
                             .textSelection(.enabled)
-                        Text(field.explanation)
+                        Text(L10n.string(field.explanation))
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -2764,9 +2779,9 @@ private struct HelpPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title)
+            Text(L10n.string(title))
                 .font(.headline)
-            Text(text)
+            Text(L10n.string(text))
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)

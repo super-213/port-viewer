@@ -9,11 +9,11 @@ enum ProcessSignalError: LocalizedError, Sendable, Equatable {
     var errorDescription: String? {
         switch self {
         case .permissionDenied:
-            return "权限不足，无法结束该进程。当前版本不申请管理员权限。"
+            return L10n.string("权限不足，无法结束该进程。当前版本不申请管理员权限。")
         case .processMissing:
-            return "进程已在操作前自行退出。"
+            return L10n.string("进程已在操作前自行退出。")
         case .failed(let code):
-            return "无法向进程发送信号（错误代码 \(code)）。"
+            return L10n.format("无法向进程发送信号（错误代码 %d）。", code)
         }
     }
 }

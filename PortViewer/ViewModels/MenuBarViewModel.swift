@@ -47,12 +47,13 @@ final class MenuBarViewModel {
     }
 
     var updateDescription: String {
-        if portViewModel.isPaused { return "自动刷新已暂停" }
+        if portViewModel.isPaused { return L10n.string("自动刷新已暂停") }
         if let issue = portViewModel.state.issueMessage { return issue }
         if let date = portViewModel.lastSuccessfulUpdate {
-            return "已更新 \(date.formatted(date: .omitted, time: .shortened))"
+            let time = date.formatted(Date.FormatStyle(date: .omitted, time: .shortened))
+            return L10n.format("已更新 %@", time)
         }
-        return "等待首次查询"
+        return L10n.string("等待首次查询")
     }
 
     func clearSearch() {

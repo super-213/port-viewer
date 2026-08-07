@@ -18,9 +18,9 @@ enum ScanTimeoutOption: Double, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .fast: return "快速 · 0.3 秒"
-        case .balanced: return "平衡 · 0.7 秒"
-        case .patient: return "耐心 · 1.5 秒"
+        case .fast: return L10n.string("快速 · 0.3 秒")
+        case .balanced: return L10n.string("平衡 · 0.7 秒")
+        case .patient: return L10n.string("耐心 · 1.5 秒")
         }
     }
 }
@@ -61,29 +61,39 @@ final class NetworkScanViewModel {
 
     var stateTitle: String {
         switch state {
-        case .idle: return "准备扫描"
-        case .running: return "正在扫描"
-        case .finished where openPorts.isEmpty: return "未探测到开放端口"
-        case .finished: return "扫描完成"
-        case .cancelled: return "扫描已取消"
-        case .failed: return "扫描失败"
+        case .idle: return L10n.string("准备扫描")
+        case .running: return L10n.string("正在扫描")
+        case .finished where openPorts.isEmpty: return L10n.string("未探测到开放端口")
+        case .finished: return L10n.string("扫描完成")
+        case .cancelled: return L10n.string("扫描已取消")
+        case .failed: return L10n.string("扫描失败")
         }
     }
 
     var stateDescription: String {
         switch state {
         case .idle:
-            return "选择单台主机或 IPv4 网段，并指定要探测的 TCP 端口。"
+            return L10n.string("选择单台主机或 IPv4 网段，并指定要探测的 TCP 端口。")
         case .running:
-            return "已完成 \(progress.completedCount.formatted()) / \(progress.totalCount.formatted())，发现 \(progress.openCount) 个开放端口。"
+            return L10n.format(
+                "已完成 %lld / %lld，发现 %lld 个开放端口。",
+                progress.completedCount,
+                progress.totalCount,
+                progress.openCount
+            )
         case .finished:
-            guard let report else { return "扫描已经完成。" }
+            guard let report else { return L10n.string("扫描已经完成。") }
             if report.openPorts.isEmpty {
-                return "目标可能关闭了这些端口，也可能被防火墙过滤或未在超时时间内响应。"
+                return L10n.string("目标可能关闭了这些端口，也可能被防火墙过滤或未在超时时间内响应。")
             }
-            return "在 \(report.hostsWithOpenPorts) 台主机上发现 \(report.openPorts.count) 个开放端口，用时 \(report.duration.formatted(.number.precision(.fractionLength(1)))) 秒。"
+            return L10n.format(
+                "在 %lld 台主机上发现 %lld 个开放端口，用时 %.1f 秒。",
+                report.hostsWithOpenPorts,
+                report.openPorts.count,
+                report.duration
+            )
         case .cancelled:
-            return "已经停止新的连接探测；取消前的临时结果未作为完整报告保存。"
+            return L10n.string("已经停止新的连接探测；取消前的临时结果未作为完整报告保存。")
         case .failed(let message):
             return message
         }

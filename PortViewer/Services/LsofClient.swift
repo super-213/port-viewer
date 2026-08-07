@@ -12,17 +12,17 @@ enum LsofQueryError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unavailable:
-            return "找不到系统工具 /usr/sbin/lsof。请确认 macOS 系统文件完整后重试。"
+            return L10n.string("找不到系统工具 /usr/sbin/lsof。请确认 macOS 系统文件完整后重试。")
         case .launchFailed(let reason):
-            return "无法启动端口查询：\(reason)"
+            return L10n.format("无法启动端口查询：%@", reason)
         case .timedOut:
-            return "端口查询超时。已保留上一次成功结果，请稍后重试。"
+            return L10n.string("端口查询超时。已保留上一次成功结果，请稍后重试。")
         case .outputTooLarge:
-            return "端口查询返回的数据过多。已停止本次查询并保留上一次成功结果。"
+            return L10n.string("端口查询返回的数据过多。已停止本次查询并保留上一次成功结果。")
         case .executionFailed(let status):
-            return "lsof 查询失败（退出代码 \(status)）。"
+            return L10n.format("lsof 查询失败（退出代码 %d）。", status)
         case .unparseableOutput:
-            return "无法解析 lsof 输出。已保留上一次成功结果。"
+            return L10n.string("无法解析 lsof 输出。已保留上一次成功结果。")
         }
     }
 }

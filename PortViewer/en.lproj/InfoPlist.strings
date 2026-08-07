@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "Port Viewer";
+"NSLocalNetworkUsageDescription" = "Port Viewer needs local network access to probe TCP ports on devices you specify.";
+

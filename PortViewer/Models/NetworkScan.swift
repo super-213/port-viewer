@@ -8,8 +8,8 @@ enum NetworkScanScope: String, CaseIterable, Identifiable, Sendable {
 
     var targetPrompt: String {
         switch self {
-        case .host: return "主机名或 IP，例如 192.168.1.10"
-        case .subnet: return "IPv4 CIDR，例如 192.168.1.0/24"
+        case .host: return L10n.string("主机名或 IP，例如 192.168.1.10")
+        case .subnet: return L10n.string("IPv4 CIDR，例如 192.168.1.0/24")
         }
     }
 }
@@ -53,19 +53,19 @@ enum NetworkScanValidationError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .missingTarget:
-            return "请输入要扫描的主机或网段。"
+            return L10n.string("请输入要扫描的主机或网段。")
         case .invalidHost:
-            return "主机名或 IP 格式无效。"
+            return L10n.string("主机名或 IP 格式无效。")
         case .invalidCIDR:
-            return "请输入有效的 IPv4 CIDR，例如 192.168.1.0/24。"
+            return L10n.string("请输入有效的 IPv4 CIDR，例如 192.168.1.0/24。")
         case .subnetTooLarge:
-            return "单次最多扫描 1,024 台主机，请缩小网段。"
+            return L10n.string("单次最多扫描 1,024 台主机，请缩小网段。")
         case .emptyPorts:
-            return "请至少选择一个 TCP 端口。"
+            return L10n.string("请至少选择一个 TCP 端口。")
         case .invalidPort(let token):
-            return "端口“\(token)”无效；可输入 22,80,443 或 8000-8100。"
+            return L10n.format("端口“%@”无效；可输入 22,80,443 或 8000-8100。", token)
         case .tooManyProbes(let count):
-            return "本次需要探测 \(count.formatted()) 个端点，超过 300,000 个上限；请缩小网段或端口范围。"
+            return L10n.format("本次需要探测 %lld 个端点，超过 300,000 个上限；请缩小网段或端口范围。", count)
         }
     }
 }

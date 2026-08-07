@@ -86,11 +86,11 @@ enum NetworkAccessScope: String, CaseIterable, Identifiable, Sendable {
     var explanation: String {
         switch self {
         case .localOnly:
-            return "这个地址通常只能由这台 Mac 上的应用访问。"
+            return L10n.string("这个地址通常只能由这台 Mac 上的应用访问。")
         case .networkPossible:
-            return "同一网络中的设备可能具备访问条件；实际能否访问仍取决于 macOS 防火墙、路由器和应用设置。"
+            return L10n.string("同一网络中的设备可能具备访问条件；实际能否访问仍取决于 macOS 防火墙、路由器和应用设置。")
         case .unknown:
-            return "当前数据不足以判断访问范围，可以在技术详情中查看原始地址。"
+            return L10n.string("当前数据不足以判断访问范围，可以在技术详情中查看原始地址。")
         }
     }
 }
@@ -123,22 +123,22 @@ enum PortActivityChangeKind: Equatable, Sendable {
     var shortDescription: String {
         switch self {
         case .appeared(let count):
-            return "刚发现 \(count) 条新连接"
+            return L10n.format("刚发现 %lld 条新连接", count)
         case .ended(let count):
-            return "刚有 \(count) 条连接结束"
+            return L10n.format("刚有 %lld 条连接结束", count)
         case .changed(let appeared, let ended):
-            return "刚新增 \(appeared) 条、结束 \(ended) 条"
+            return L10n.format("刚新增 %lld 条、结束 %lld 条", appeared, ended)
         }
     }
 
     var accessibilityDescription: String {
         switch self {
         case .appeared(let count):
-            return "刚刚发现 \(count) 条新的连接活动"
+            return L10n.format("刚刚发现 %lld 条新的连接活动", count)
         case .ended(let count):
-            return "刚刚有 \(count) 条连接活动结束"
+            return L10n.format("刚刚有 %lld 条连接活动结束", count)
         case .changed(let appeared, let ended):
-            return "连接刚刚发生变化，新增 \(appeared) 条，结束 \(ended) 条"
+            return L10n.format("连接刚刚发生变化，新增 %lld 条，结束 %lld 条", appeared, ended)
         }
     }
 }
@@ -210,21 +210,23 @@ struct ListenerActivitySummary: Equatable, Sendable {
     let recentChange: RecentPortActivityChange?
 
     var currentDescription: String {
-        connectionCount == 0 ? "当前未观察到连接" : "当前有 \(connectionCount) 条连接活动"
+        connectionCount == 0
+            ? L10n.string("当前未观察到连接")
+            : L10n.format("当前有 %lld 条连接活动", connectionCount)
     }
 
     var inlineDescription: String? {
         if let recentChange {
-            return "\(recentChange.kind.shortDescription) · 当前 \(connectionCount) 条"
+            return L10n.format("%@ · 当前 %lld 条", recentChange.kind.shortDescription, connectionCount)
         }
-        return connectionCount > 0 ? "当前 \(connectionCount) 条连接活动" : nil
+        return connectionCount > 0 ? L10n.format("当前 %lld 条连接活动", connectionCount) : nil
     }
 
     var accessibilityDescription: String {
         if let recentChange {
-            return "\(recentChange.kind.accessibilityDescription)。\(currentDescription)。"
+            return L10n.format("%@。%@。", recentChange.kind.accessibilityDescription, currentDescription)
         }
-        return "\(currentDescription)。"
+        return L10n.format("%@。", currentDescription)
     }
 
     static func make(
@@ -316,45 +318,45 @@ extension PortRecord {
     var friendlyStatusExplanation: String {
         switch normalizedState {
         case "LISTEN":
-            return "应用开放了一个端口，正在等待其他程序连接。"
+            return L10n.string("应用开放了一个端口，正在等待其他程序连接。")
         case "ESTABLISHED":
-            return "双方具备交换数据的条件，但不代表此刻一定有数据传输。"
+            return L10n.string("双方具备交换数据的条件，但不代表此刻一定有数据传输。")
         case "SYN_SENT":
-            return "这台 Mac 正在尝试连接另一端。"
+            return L10n.string("这台 Mac 正在尝试连接另一端。")
         case "SYN_RECEIVED":
-            return "已收到连接请求，正在完成建立连接。"
+            return L10n.string("已收到连接请求，正在完成建立连接。")
         case "TIME_WAIT":
-            return "连接已经关闭，系统暂时保留记录以处理延迟数据。"
+            return L10n.string("连接已经关闭，系统暂时保留记录以处理延迟数据。")
         case "CLOSE_WAIT":
-            return "另一端已结束连接，本机应用还在完成关闭流程。"
+            return L10n.string("另一端已结束连接，本机应用还在完成关闭流程。")
         case "FIN_WAIT_1", "FIN_WAIT_2", "CLOSING":
-            return "连接正在关闭，系统仍在等待一端或双方确认。"
+            return L10n.string("连接正在关闭，系统仍在等待一端或双方确认。")
         case "LAST_ACK":
-            return "连接即将结束，正在等待最后确认。"
+            return L10n.string("连接即将结束，正在等待最后确认。")
         case "CLOSED":
-            return "连接已经关闭。"
+            return L10n.string("连接已经关闭。")
         case nil where transport == .udp:
-            return "UDP 不保持 TCP 式连接状态，因此没有“已连接/未连接”状态。"
+            return L10n.string("UDP 不保持 TCP 式连接状态，因此没有“已连接/未连接”状态。")
         case nil:
-            return "系统没有为这条记录提供可识别的 TCP 状态。"
+            return L10n.string("系统没有为这条记录提供可识别的 TCP 状态。")
         default:
-            return "这是系统返回的技术状态，可在技术详情中查看原始代码。"
+            return L10n.string("这是系统返回的技术状态，可在技术详情中查看原始代码。")
         }
     }
 
     static func friendlyStatusTitle(for state: String?, transport: TransportProtocol = .tcp) -> String {
         switch state?.uppercased() {
-        case "LISTEN": return "等待连接"
-        case "ESTABLISHED": return "连接已建立"
-        case "SYN_SENT": return "正在发起连接"
-        case "SYN_RECEIVED": return "正在确认连接"
-        case "TIME_WAIT": return "刚刚结束"
-        case "CLOSE_WAIT": return "等待应用关闭"
-        case "FIN_WAIT_1", "FIN_WAIT_2", "CLOSING": return "正在关闭"
-        case "LAST_ACK": return "正在完成关闭"
-        case "CLOSED": return "已结束"
-        case nil where transport == .udp: return "正在使用"
-        default: return "其他状态"
+        case "LISTEN": return L10n.string("等待连接")
+        case "ESTABLISHED": return L10n.string("连接已建立")
+        case "SYN_SENT": return L10n.string("正在发起连接")
+        case "SYN_RECEIVED": return L10n.string("正在确认连接")
+        case "TIME_WAIT": return L10n.string("刚刚结束")
+        case "CLOSE_WAIT": return L10n.string("等待应用关闭")
+        case "FIN_WAIT_1", "FIN_WAIT_2", "CLOSING": return L10n.string("正在关闭")
+        case "LAST_ACK": return L10n.string("正在完成关闭")
+        case "CLOSED": return L10n.string("已结束")
+        case nil where transport == .udp: return L10n.string("正在使用")
+        default: return L10n.string("其他状态")
         }
     }
 }
@@ -397,7 +399,7 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
         switch localPorts.count {
         case 0: return "*"
         case 1: return String(localPorts[0])
-        default: return "\(localPorts.count) 个"
+        default: return L10n.format("%lld 个", localPorts.count)
         }
     }
     var localPortSortValue: Int { localPorts.first ?? Int.max }
@@ -424,88 +426,94 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     }
 
     var localPortRoleText: String {
-        if representative.isListening { return "服务端口" }
-        if isConnectionSummary { return "连接端口" }
-        if transport == .udp { return "UDP 端口" }
-        return "本机端口"
+        if representative.isListening { return L10n.string("服务端口") }
+        if isConnectionSummary { return L10n.string("连接端口") }
+        if transport == .udp { return L10n.string("UDP 端口") }
+        return L10n.string("本机端口")
     }
 
     var localPortRelationshipText: String {
-        let port = localPorts.first.map(String.init) ?? "未知"
+        let port = localPorts.first.map(String.init) ?? L10n.string("未知")
         if representative.isListening {
-            return localPorts.count > 1 ? "\(localPorts.count) 个服务端口" : "服务端口 \(port)"
+            return localPorts.count > 1
+                ? L10n.format("%lld 个服务端口", localPorts.count)
+                : L10n.format("服务端口 %@", port)
         }
         if isConnectionSummary {
-            return localPorts.count > 1 ? "\(localPorts.count) 个本机连接端口" : "本机连接端口 \(port)"
+            return localPorts.count > 1
+                ? L10n.format("%lld 个本机连接端口", localPorts.count)
+                : L10n.format("本机连接端口 %@", port)
         }
-        if transport == .udp { return "UDP 端口 \(port)" }
-        return "本机端口 \(port)"
+        if transport == .udp { return L10n.format("UDP 端口 %@", port) }
+        return L10n.format("本机端口 %@", port)
     }
 
     var activitySummaryText: String? {
         if representative.isListening, localPorts.count > 1 {
-            return "\(localPorts.count) 个服务端口"
+            return L10n.format("%lld 个服务端口", localPorts.count)
         }
         if isConnectionSummary, connectionCount > 1 {
-            let targetText = remoteTargetCount == 1 ? "1 个目标" : "\(remoteTargetCount) 个目标"
-            return "\(connectionCount) 条连接 · \(targetText)"
+            let targetText = remoteTargetCount == 1
+                ? L10n.string("1 个目标")
+                : L10n.format("%lld 个目标", remoteTargetCount)
+            return L10n.format("%lld 条连接 · %@", connectionCount, targetText)
         }
         return containsTechnicalRecordText
     }
 
     var containsTechnicalRecordText: String? {
-        rawRecords.count > 1 ? "包含 \(rawRecords.count) 条技术记录" : nil
+        rawRecords.count > 1 ? L10n.format("包含 %lld 条技术记录", rawRecords.count) : nil
     }
 
     var connectionDisplay: String {
         if representative.isListening {
-            return accessScope.rawValue
+            return L10n.string(accessScope.rawValue)
         }
         if isConnectionSummary {
             if remoteTargetCount == 1, let endpoint = remoteEndpoints.first {
-                let countSuffix = connectionCount > 1 ? " · \(connectionCount) 条" : ""
-                return "连接到 \(endpoint)\(countSuffix)"
+                let countSuffix = connectionCount > 1 ? L10n.format(" · %lld 条", connectionCount) : ""
+                return L10n.format("连接到 %@%@", endpoint, countSuffix)
             }
             if remoteTargetCount > 1 {
-                return "连接到 \(remoteTargetCount) 个目标 · \(connectionCount) 条"
+                return L10n.format("连接到 %lld 个目标 · %lld 条", remoteTargetCount, connectionCount)
             }
         }
         if representative.transport == .udp {
-            return "通信对象不固定"
+            return L10n.string("通信对象不固定")
         }
-        return "连接对象未知"
+        return L10n.string("连接对象未知")
     }
 
     var conclusion: String {
         let record = representative
-        let port = record.localPort.map(String.init) ?? "未知端口"
+        let port = record.localPort.map(String.init) ?? L10n.string("未知端口")
 
         if record.isListening {
             if localPorts.count > 1 {
                 switch accessScope {
                 case .localOnly:
-                    return "\(processName) 正在通过 \(localPorts.count) 个服务端口等待这台 Mac 上的应用连接。"
+                    return L10n.format("%@ 正在通过 %lld 个服务端口等待这台 Mac 上的应用连接。", processName, localPorts.count)
                 case .networkPossible:
-                    return "\(processName) 正在通过 \(localPorts.count) 个服务端口等待连接，同一网络中的其他设备可能也能访问它们。"
+                    return L10n.format("%@ 正在通过 %lld 个服务端口等待连接，同一网络中的其他设备可能也能访问它们。", processName, localPorts.count)
                 case .unknown:
-                    return "\(processName) 正在通过 \(localPorts.count) 个服务端口等待连接，但访问范围暂不确定。"
+                    return L10n.format("%@ 正在通过 %lld 个服务端口等待连接，但访问范围暂不确定。", processName, localPorts.count)
                 }
             }
             switch accessScope {
             case .localOnly:
-                return "\(processName) 正在通过端口 \(port) 等待这台 Mac 上的应用连接。"
+                return L10n.format("%@ 正在通过端口 %@ 等待这台 Mac 上的应用连接。", processName, port)
             case .networkPossible:
-                return "\(processName) 正在通过端口 \(port) 等待连接，同一网络中的其他设备可能也能访问它。"
+                return L10n.format("%@ 正在通过端口 %@ 等待连接，同一网络中的其他设备可能也能访问它。", processName, port)
             case .unknown:
-                return "\(processName) 正在通过端口 \(port) 等待连接，但访问范围暂不确定。"
+                return L10n.format("%@ 正在通过端口 %@ 等待连接，但访问范围暂不确定。", processName, port)
             }
         }
 
         if record.transport == .udp {
             if record.remoteAddress != nil {
-                return "\(processName) 正在使用 UDP 端口 \(port) 与 \(record.remoteEndpoint) 通信。"
+                return L10n.format("%@ 正在使用 UDP 端口 %@ 与 %@ 通信。", processName, port, record.remoteEndpoint)
             }
-            return "\(processName) 正在使用 UDP 端口 \(port) 发送或接收无固定连接的数据。"
+            return L10n.format("%@ 正在使用 UDP 端口 %@ 发送或接收无固定连接的数据。", processName, port)
         }
 
         if isConnectionSummary, connectionCount > 1 {
@@ -513,59 +521,85 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
             if remoteTargetCount == 1, let endpoint = remoteEndpoints.first {
                 targetText = endpoint
             } else {
-                targetText = "\(remoteTargetCount) 个不同目标"
+                targetText = L10n.format("%lld 个不同目标", remoteTargetCount)
             }
             let portText: String
             if localPorts.count == 1, let sharedPort = localPorts.first {
-                portText = "共同使用本机端口 \(sharedPort)"
+                portText = L10n.format("共同使用本机端口 %lld", sharedPort)
             } else {
-                portText = "使用 \(localPorts.count) 个本机连接端口"
+                portText = L10n.format("使用 %lld 个本机连接端口", localPorts.count)
             }
             switch activityKind {
             case .connected:
-                return "\(processName) 与 \(targetText) 之间有 \(connectionCount) 条已建立连接，\(portText)。"
+                return L10n.format("%@ 与 %@ 之间有 %lld 条已建立连接，%@。", processName, targetText, connectionCount, portText)
             case .transitioning:
-                return "\(processName) 与 \(targetText) 之间有 \(connectionCount) 条连接正在建立或关闭，\(portText)。"
+                return L10n.format("%@ 与 %@ 之间有 %lld 条连接正在建立或关闭，%@。", processName, targetText, connectionCount, portText)
             default:
-                return "\(processName) 正在与 \(targetText) 进行 \(connectionCount) 条网络连接活动，\(portText)。"
+                return L10n.format("%@ 正在与 %@ 进行 %lld 条网络连接活动，%@。", processName, targetText, connectionCount, portText)
             }
         }
 
         if let remoteAddress = record.remoteAddress {
-            let remotePort = record.remotePort.map(String.init) ?? "未知"
+            let remotePort = record.remotePort.map(String.init) ?? L10n.string("未知")
             switch record.activityKind {
             case .connected:
-                return "\(processName) 与 \(remoteAddress) 的 \(remotePort) 端口之间已建立连接。"
+                return L10n.format("%@ 与 %@ 的 %@ 端口之间已建立连接。", processName, remoteAddress, remotePort)
             case .transitioning:
-                return "\(processName) 与 \(remoteAddress) 的 \(remotePort) 端口之间\(record.friendlyStatusTitle)。"
+                return L10n.format("%@ 与 %@ 的 %@ 端口之间%@。", processName, remoteAddress, remotePort, record.friendlyStatusTitle)
             default:
-                return "\(processName) 正在与 \(remoteAddress) 的 \(remotePort) 端口进行网络活动。"
+                return L10n.format("%@ 正在与 %@ 的 %@ 端口进行网络活动。", processName, remoteAddress, remotePort)
             }
         }
 
-        return "\(processName) 正在进行网络活动，但目前的信息不足以确定连接对象。"
+        return L10n.format("%@ 正在进行网络活动，但目前的信息不足以确定连接对象。", processName)
     }
 
     var textualRelationshipDescription: String {
         let record = representative
-        let port = record.localPort.map(String.init) ?? "未知"
+        let port = record.localPort.map(String.init) ?? L10n.string("未知")
         if record.isListening {
-            let source = accessScope == .localOnly ? "这台 Mac" : accessScope == .networkPossible ? "这台 Mac 或同一网络设备" : "访问来源暂不确定"
-            let ownership = localPorts.count > 1 ? "这些端口" : "该端口"
-            return "连接关系：\(source) 可以尝试连接这台 Mac 的\(localPortRelationshipText)，\(ownership)由 \(processName) 使用。"
+            let source = accessScope == .localOnly
+                ? L10n.string("这台 Mac")
+                : accessScope == .networkPossible
+                    ? L10n.string("这台 Mac 或同一网络设备")
+                    : L10n.string("访问来源暂不确定")
+            let ownership = localPorts.count > 1 ? L10n.string("这些端口") : L10n.string("该端口")
+            return L10n.format(
+                "连接关系：%@ 可以尝试连接这台 Mac 的%@，%@由 %@ 使用。",
+                source,
+                localPortRelationshipText,
+                ownership,
+                processName
+            )
         }
         if record.transport == .udp {
-            let target = record.remoteAddress == nil ? "可能的通信对象" : record.remoteEndpoint
-            return "连接关系：\(processName) 通过这台 Mac 的 UDP 端口 \(port) 与 \(target) 发送或接收数据。UDP 没有 TCP 式的连接状态。"
+            let target = record.remoteAddress == nil ? L10n.string("可能的通信对象") : record.remoteEndpoint
+            return L10n.format(
+                "连接关系：%@ 通过这台 Mac 的 UDP 端口 %@ 与 %@ 发送或接收数据。UDP 没有 TCP 式的连接状态。",
+                processName,
+                port,
+                target
+            )
         }
         if isConnectionSummary, connectionCount > 1 {
             let target = remoteTargetCount == 1
-                ? (remoteEndpoints.first ?? "连接对象未知")
-                : "\(remoteTargetCount) 个不同目标"
-            return "连接关系：\(processName) 通过这台 Mac 的\(localPortRelationshipText)，与 \(target) 保持 \(connectionCount) 条独立连接；这些本机端口不表示应用对外开放了同样数量的服务。"
+                ? (remoteEndpoints.first ?? L10n.string("连接对象未知"))
+                : L10n.format("%lld 个不同目标", remoteTargetCount)
+            return L10n.format(
+                "连接关系：%@ 通过这台 Mac 的%@，与 %@ 保持 %lld 条独立连接；这些本机端口不表示应用对外开放了同样数量的服务。",
+                processName,
+                localPortRelationshipText,
+                target,
+                connectionCount
+            )
         }
-        let target = record.remoteAddress == nil ? "连接对象未知" : record.remoteEndpoint
-        return "连接关系：\(processName) 通过这台 Mac 的本机端口 \(port) 与 \(target) 存在连接关系；双向箭头不表示此刻一定正在传输数据。"
+        let target = record.remoteAddress == nil ? L10n.string("连接对象未知") : record.remoteEndpoint
+        return L10n.format(
+            "连接关系：%@ 通过这台 Mac 的本机端口 %@ 与 %@ 存在连接关系；双向箭头不表示此刻一定正在传输数据。",
+            processName,
+            port,
+            target
+        )
     }
 
     var meaningMessages: [String] {
@@ -573,19 +607,19 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
         if record.isListening {
             var messages = [accessScope.explanation]
             if localPorts.count > 1 {
-                messages.append("同一应用可以为不同功能使用多个服务端口；端口数量本身不代表异常。")
+                messages.append(L10n.string("同一应用可以为不同功能使用多个服务端口；端口数量本身不代表异常。"))
             }
             return messages
         }
         if record.transport == .udp {
-            return ["UDP 不保持“已连接/未连接”状态，因此这里没有 TCP 那样的连接状态。"]
+            return [L10n.string("UDP 不保持“已连接/未连接”状态，因此这里没有 TCP 那样的连接状态。")]
         }
         var messages: [String]
         switch record.normalizedState {
         case "ESTABLISHED":
-            messages = ["两端已建立连接并具备交换数据的条件，但不代表此刻一定在传输数据。"]
+            messages = [L10n.string("两端已建立连接并具备交换数据的条件，但不代表此刻一定在传输数据。")]
         case "TIME_WAIT", "CLOSED":
-            messages = ["连接已经结束，系统可能会短暂保留这条记录。"]
+            messages = [L10n.string("连接已经结束，系统可能会短暂保留这条记录。")]
         default:
             messages = [record.friendlyStatusExplanation]
         }
@@ -595,9 +629,13 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
             .filter { $0.value.count > 1 }
             .sorted { $0.key < $1.key }
         if let repeatedPort = repeatedPorts.first {
-            messages.append("本机端口 \(repeatedPort.key) 同时出现在 \(repeatedPort.value.count) 条连接中，因为连接对象不同；相同端口不代表同一连接。")
+            messages.append(L10n.format(
+                "本机端口 %lld 同时出现在 %lld 条连接中，因为连接对象不同；相同端口不代表同一连接。",
+                repeatedPort.key,
+                repeatedPort.value.count
+            ))
         } else {
-            messages.append("同一应用可以同时建立多条独立连接；这些本机连接端口不是对外开放的服务。")
+            messages.append(L10n.string("同一应用可以同时建立多条独立连接；这些本机连接端口不是对外开放的服务。"))
         }
         return messages
     }
@@ -615,7 +653,7 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
         }
 
         let grouped = Dictionary(grouping: records) { record in
-            let unknownStateSuffix = record.friendlyStatusTitle == "其他状态" ? "|\(record.normalizedState ?? "")" : ""
+            let unknownStateSuffix = record.friendlyStatusTitle == L10n.string("其他状态") ? "|\(record.normalizedState ?? "")" : ""
             let summarizesConnections = record.isActiveConnection
             let summarizesListeners = record.isListening
             return GroupKey(
