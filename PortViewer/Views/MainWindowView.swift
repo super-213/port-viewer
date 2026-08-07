@@ -814,7 +814,7 @@ private struct OverviewTopProcessesPanel: View {
                 ContentUnavailableView("暂无应用活动", systemImage: "app.dashed")
                     .frame(maxWidth: .infinity, minHeight: 160)
             } else {
-                Chart(Array(processes.reversed())) { process in
+                Chart(processes) { process in
                     BarMark(
                         x: .value("系统记录", process.recordCount),
                         y: .value("应用", process.processName)
@@ -827,6 +827,7 @@ private struct OverviewTopProcessesPanel: View {
                             .foregroundStyle(PVPalette.textSecondary)
                     }
                 }
+                .chartYScale(domain: processes.map(\.processName))
                 .chartLegend(.hidden)
                 .chartXAxis(.hidden)
                 .chartYAxis {
