@@ -29,6 +29,7 @@ struct PortViewerApp: App {
     @State private var portViewModel: PortViewModel
     @State private var mainWindowViewModel: MainWindowViewModel
     @State private var menuBarViewModel: MenuBarViewModel
+    @State private var networkScanViewModel: NetworkScanViewModel
 
     init() {
         let portViewModel = PortViewModel(
@@ -42,17 +43,24 @@ struct PortViewerApp: App {
         _menuBarViewModel = State(
             initialValue: MenuBarViewModel(portViewModel: portViewModel)
         )
+        _networkScanViewModel = State(
+            initialValue: NetworkScanViewModel(scanner: NetworkScannerService())
+        )
     }
 
     var body: some Scene {
         WindowGroup("Port Viewer", id: "main") {
             MainWindowView(
                 portViewModel: portViewModel,
-                viewModel: mainWindowViewModel
+                viewModel: mainWindowViewModel,
+                networkScanViewModel: networkScanViewModel
             )
             .preferredColorScheme(.dark)
             .task {
-                appDelegate.terminationHandler = portViewModel.stop
+                appDelegate.terminationHandler = {
+                    portViewModel.stop()
+                    networkScanViewModel.cancelScan()
+                }
                 portViewModel.start()
             }
         }
@@ -71,7 +79,10 @@ struct PortViewerApp: App {
             )
             .preferredColorScheme(.dark)
             .task {
-                appDelegate.terminationHandler = portViewModel.stop
+                appDelegate.terminationHandler = {
+                    portViewModel.stop()
+                    networkScanViewModel.cancelScan()
+                }
                 portViewModel.start()
             }
         } label: {

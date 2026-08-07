@@ -12,7 +12,7 @@
 
 Port Viewer 是一款使用 SwiftUI 构建的 macOS 原生端口查看工具。它把系统 `lsof` 返回的进程、端口和连接信息转换成更容易理解的中文结论，让不熟悉命令行的用户也能快速找到端口占用者，并在明确了解影响后结束对应进程。
 
-所有查询都在本机完成，不需要账号，也不会把进程或网络连接数据上传到远端。
+所有数据处理都在本机完成，不需要账号，也不会上传进程、连接或扫描结果；主动扫描只会连接用户指定的目标。
 
 ## 功能亮点
 
@@ -20,6 +20,7 @@ Port Viewer 是一款使用 SwiftUI 构建的 macOS 原生端口查看工具。�
 - **连接关系可视化**：用端口芯片、迷你拓扑和分支节点汇总同一应用的服务端口、连接数、目标数与共享进程，并区分“仅本机访问”和“同一网络可能访问”。
 - **快速搜索与筛选**：按进程名、PID 或端口搜索，支持范围、访问来源、进程归属、协议、IP 版本和 TCP 状态筛选。
 - **TCP 与 UDP 一并查看**：展示监听端口、已建立连接、连接变化和其他网络活动，同时保留完整技术字段。
+- **主动 TCP 端口扫描**：测试另一台设备的指定端口，或扫描 IPv4 CIDR 网段；支持常用端口、1–1024、单主机全部端口和自定义端口段。
 - **菜单栏快捷入口**：无需打开主窗口即可查看概况、搜索记录、刷新数据或定位到详情。
 - **自动刷新**：前台和后台可使用不同刷新间隔，也可暂停或手动刷新。
 - **谨慎释放端口**：操作前重新确认进程仍在占用目标端口；优先发送 `SIGTERM`，必要时才提示使用 `SIGKILL`，操作后再次查询验证结果。
@@ -65,6 +66,15 @@ xcodebuild \
 4. 选择一条记录，查看易懂结论、连接关系、访问范围和可展开的技术详情。
 5. 如需释放端口，选择“结束进程”并确认影响。应用会在发送信号前后分别校验一次实时状态。
 
+### 扫描另一台设备或局域网
+
+1. 在主窗口侧栏选择“网络扫描”。
+2. 选择“单台主机”并输入主机名/IP，或选择“局域网网段”并输入 IPv4 CIDR，例如 `192.168.1.0/24`。
+3. 选择端口预设；主动测试单个端口时选择“自定义”并输入例如 `443`，也可输入 `22,80,443,8000-8100`。
+4. 开始扫描后可查看进度并随时取消；扫描完成后只列出成功建立 TCP 连接的开放端口。
+
+为避免一次产生数千万次连接探测，单次最多扫描 1,024 台主机和 300,000 个“主机 × 端口”组合。单台主机可扫描全部 65,535 个 TCP 端口；较大网段应选择常用端口或较小的自定义范围。
+
 常用快捷键：
 
 | 快捷键 | 操作 |
@@ -76,7 +86,9 @@ xcodebuild \
 ## 安全与隐私
 
 - 端口信息来自本机 `/usr/sbin/lsof`，查询与解析均在本地执行。
-- 应用不会执行用户输入的 Shell 命令，也不包含远程主机或公网端口扫描。
+- 主动扫描直接使用系统 Network framework 建立 TCP 连接，不执行用户输入的 Shell 命令，也不上传扫描结果。
+- 请只扫描自己拥有或明确获准测试的设备和网络；应用不会绕过防火墙或隐藏扫描来源。
+- “未探测到开放”不等同于确定关闭：目标也可能被防火墙过滤、无法路由或没有在所选超时时间内响应。
 - 当前版本不申请管理员权限，只允许结束当前登录用户拥有的进程。
 - 对 `launchd`、`kernel_task` 等关键系统进程禁用强制结束。
 - “同一网络可能访问”仅根据监听地址推断，不代表端口已经暴露到公网；实际访问仍受防火墙和网络环境影响。
@@ -84,7 +96,7 @@ xcodebuild \
 
 ## 技术架构
 
-项目采用 **MVVM + Service + Observation + Swift Concurrency**。`PortViewerApp` 是组合根，显式创建协议化 Service、全局 `PortViewModel` 和两个页面级 ViewModel。主窗口与菜单栏共享同一份查询快照，但各自保留独立的搜索、筛选与选择状态；View 不直接执行系统命令。
+项目采用 **MVVM + Service + Observation + Swift Concurrency**。`PortViewerApp` 是组合根，显式创建协议化 Service、全局 `PortViewModel` 和三个页面级 ViewModel。主窗口与菜单栏共享同一份本机查询快照，网络扫描拥有独立的可取消任务与结果状态；View 不直接执行系统命令或网络连接。
 
 ```mermaid
 flowchart LR
@@ -92,6 +104,7 @@ flowchart LR
         LSOF["/usr/sbin/lsof"]
         PROC["proc_pidpath"]
         KILL["Darwin.kill"]
+        NETWORK["Network.framework"]
     end
 
     subgraph Services["协议化 Service 层"]
@@ -100,6 +113,7 @@ flowchart LR
         PARSER["LsofParser"]
         CONTROL["ProcessControlling"]
         CONTROLLER["ProcessService"]
+        SCANNER["NetworkScannerService"]
     end
 
     subgraph State["@MainActor Observation ViewModel"]
@@ -108,12 +122,14 @@ flowchart LR
         MAIN_VM["MainWindowViewModel"]
         MENU_VM["MenuBarViewModel"]
         PRESENTATION["ReadablePortItem / 活动快照"]
+        SCAN_VM["NetworkScanViewModel"]
     end
 
     subgraph UI["SwiftUI 展示层"]
         MAIN["主窗口"]
         MENU["菜单栏面板"]
         SETTINGS["设置页"]
+        SCAN_UI["网络扫描"]
     end
 
     LSOF --> CLIENT
@@ -123,6 +139,8 @@ flowchart LR
     STORE --> MENU_VM --> MENU
     SETTINGS -. "UserDefaults" .-> STORE
     STORE --> CONTROL --> CONTROLLER --> KILL
+    SCAN_VM --> SCANNER --> NETWORK
+    SCAN_VM --> SCAN_UI
 ```
 
 > 图中的 `proc_pidpath` 用于补充可执行文件路径；`Darwin.kill` 仅在用户确认结束进程后调用。
@@ -138,6 +156,8 @@ flowchart LR
 | 展示模型 | [`NetworkPresentation.swift`](PortViewer/Models/NetworkPresentation.swift) | 将原始网络记录归组，生成中文状态、访问范围、连接结论和活动变化 |
 | 数据模型 | [`PortRecord.swift`](PortViewer/Models/PortRecord.swift) | 定义原始端口记录、查询快照、端点格式和搜索匹配规则 |
 | 查询服务 | [`PortQuerying.swift`](PortViewer/Services/PortQuerying.swift)、[`LsofClient.swift`](PortViewer/Services/LsofClient.swift)、[`LsofParser.swift`](PortViewer/Services/LsofParser.swift) | single-flight 查询、强制新查询、异步 Pipe 读取、超时/取消清理、解析和进程路径补充 |
+| 扫描服务 | [`NetworkScanner.swift`](PortViewer/Services/NetworkScanner.swift) | 使用 Network framework 并发执行 TCP connect 探测，限制并发并支持超时与取消 |
+| 扫描页面 | [`NetworkScan.swift`](PortViewer/Models/NetworkScan.swift)、[`NetworkScanViewModel.swift`](PortViewer/ViewModels/NetworkScanViewModel.swift)、[`NetworkScanView.swift`](PortViewer/Views/NetworkScanView.swift) | 解析主机、CIDR 与端口范围，校验扫描规模，并展示进度和开放端口报告 |
 | 进程服务 | [`ProcessControlling.swift`](PortViewer/Services/ProcessControlling.swift)、[`ProcessController.swift`](PortViewer/Services/ProcessController.swift) | 检查 PID、发送信号、稳定映射系统错误并保护关键系统进程 |
 
 ### 查询与刷新数据流
@@ -216,19 +236,22 @@ port-viewer/
 │   │   ├── PortQuerying.swift      # 查询协议与复用/强制新查询策略
 │   │   ├── LsofClient.swift        # LsofService、single-flight 与异步进程桥接
 │   │   ├── LsofParser.swift        # lsof 机器输出解析
+│   │   ├── NetworkScanner.swift    # 可取消的并发 TCP connect 扫描
 │   │   ├── ProcessControlling.swift # 进程控制协议
 │   │   └── ProcessController.swift # ProcessService 与关键进程保护
 │   ├── ViewModels/
 │   │   ├── PortViewModel.swift     # 全局快照、刷新和安全业务流程
 │   │   ├── MainWindowViewModel.swift # 主窗口筛选、排序和选择
+│   │   ├── NetworkScanViewModel.swift # 主机/网段扫描状态与进度
 │   │   └── MenuBarViewModel.swift  # 菜单栏搜索和展示状态
 │   ├── Views/
 │   │   ├── MainWindowView.swift    # 主窗口与连接关系详情
+│   │   ├── NetworkScanView.swift   # 远程 TCP 扫描配置与结果
 │   │   ├── MenuBarPanel.swift      # 菜单栏面板
 │   │   └── SettingsView.swift      # 刷新和菜单栏设置
 │   ├── Assets.xcassets/
 │   └── PortViewerApp.swift         # 应用入口
-├── PortViewerTests/                # 单元测试与真实 lsof 集成测试
+├── PortViewerTests/                # 单元测试与本机集成测试
 ├── docs/                           # 产品需求文档
 └── PortViewer.xcodeproj/
 ```
@@ -251,6 +274,7 @@ xcodebuild \
 | [`LsofParserTests.swift`](PortViewerTests/LsofParserTests.swift) | 进程/文件字段、IPv4/IPv6 端点和异常字段解析 |
 | [`PortSearchTests.swift`](PortViewerTests/PortSearchTests.swift) | 端口、PID、进程名搜索和精确匹配排序 |
 | [`NetworkPresentationTests.swift`](PortViewerTests/NetworkPresentationTests.swift) | 中文状态、访问范围、记录归组、连接活动变化和数据表述边界 |
+| [`NetworkScanTests.swift`](PortViewerTests/NetworkScanTests.swift) | 端口段/CIDR 解析、扫描规模保护、并发上限、进度、开放结果与取消 |
 | [`PortViewModelTests.swift`](PortViewerTests/PortViewModelTests.swift) | 刷新状态、请求合并、活动变化和结束进程安全链路 |
 | [`PageViewModelTests.swift`](PortViewerTests/PageViewModelTests.swift) | 搜索筛选排序、选择恢复/替代占用者和菜单栏独立状态 |
 | [`LsofServiceTests.swift`](PortViewerTests/LsofServiceTests.swift) | single-flight、强制新查询、等待者取消、输出语义、超时与资源清理 |

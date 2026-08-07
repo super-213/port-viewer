@@ -5,6 +5,7 @@ import SwiftUI
 struct MainWindowView: View {
     @Bindable var portViewModel: PortViewModel
     @Bindable var viewModel: MainWindowViewModel
+    @Bindable var networkScanViewModel: NetworkScanViewModel
     @State private var technicalDetailsExpanded = false
     @State private var searchIsFocused = false
     @State private var sidebarIsVisible = true
@@ -20,11 +21,11 @@ struct MainWindowView: View {
                 }
 
                 VStack(spacing: 0) {
-                    if let issue = portViewModel.state.issueMessage {
+                    if selectedPage != .scanner, let issue = portViewModel.state.issueMessage {
                         QueryBanner(message: issue, symbol: "exclamationmark.triangle.fill", color: PVPalette.warning) {
                             portViewModel.refreshNow()
                         }
-                    } else if portViewModel.isPaused {
+                    } else if selectedPage != .scanner, portViewModel.isPaused {
                         QueryBanner(
                             message: "自动刷新已暂停，当前数据可能已过期。",
                             symbol: "pause.circle.fill",
@@ -121,6 +122,13 @@ struct MainWindowView: View {
                     .accessibilityLabel("\(item.rawValue)，\(viewModel.count(for: item)) 条。\(item.explanation)")
                 }
             }
+
+            Section("工具") {
+                Label("网络扫描", systemImage: "dot.radiowaves.left.and.right")
+                    .tag(MainSidebarPage.scanner)
+                    .help("主动测试另一台设备或 IPv4 网段的 TCP 端口")
+                    .accessibilityLabel("网络扫描，主动测试远程 TCP 端口")
+            }
         }
         .listStyle(.sidebar)
         .tint(PVPalette.accentPrimary)
@@ -155,6 +163,10 @@ struct MainWindowView: View {
 
         case .activity:
             activityWorkspace
+
+        case .scanner:
+            NetworkScanView(viewModel: networkScanViewModel)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -251,34 +263,42 @@ struct MainWindowView: View {
         }
 
         ToolbarItem(placement: .principal) {
-            PremiumSearchField(
-                text: $viewModel.searchText,
-                prompt: "搜索应用名称或端口，例如 3000",
-                focusRequest: $searchIsFocused
-            )
-            .frame(width: 310)
-            .accessibilityLabel("搜索应用名称或端口")
+            if selectedPage != .scanner {
+                PremiumSearchField(
+                    text: $viewModel.searchText,
+                    prompt: "搜索应用名称或端口，例如 3000",
+                    focusRequest: $searchIsFocused
+                )
+                .frame(width: 310)
+                .accessibilityLabel("搜索应用名称或端口")
+            } else {
+                Text("网络扫描")
+                    .font(.headline)
+                    .foregroundStyle(PVPalette.textSecondary)
+            }
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
-            Button {
-                portViewModel.togglePause()
-            } label: {
-                Label(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新", systemImage: portViewModel.isPaused ? "play.fill" : "pause.fill")
-            }
-            .buttonStyle(QuietButtonStyle())
-            .help(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
-            .accessibilityLabel(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
+            if selectedPage != .scanner {
+                Button {
+                    portViewModel.togglePause()
+                } label: {
+                    Label(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新", systemImage: portViewModel.isPaused ? "play.fill" : "pause.fill")
+                }
+                .buttonStyle(QuietButtonStyle())
+                .help(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
+                .accessibilityLabel(portViewModel.isPaused ? "继续自动刷新" : "暂停自动刷新")
 
-            Button {
-                portViewModel.refreshNow()
-            } label: {
-                Label("立即刷新", systemImage: "arrow.clockwise")
+                Button {
+                    portViewModel.refreshNow()
+                } label: {
+                    Label("立即刷新", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(QuietButtonStyle())
+                .disabled(portViewModel.isRefreshing)
+                .help("立即刷新（Command-R）")
+                .accessibilityLabel("立即刷新网络活动列表")
             }
-            .buttonStyle(QuietButtonStyle())
-            .disabled(portViewModel.isRefreshing)
-            .help("立即刷新（Command-R）")
-            .accessibilityLabel("立即刷新网络活动列表")
 
             SettingsLink {
                 Label("设置", systemImage: "gearshape")
@@ -913,6 +933,7 @@ private extension OverviewBreakdownKind {
 private enum MainSidebarPage: Hashable {
     case overview
     case activity(SidebarScope)
+    case scanner
 }
 
 private struct OverviewMetricButton: View {
