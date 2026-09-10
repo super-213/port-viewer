@@ -111,25 +111,42 @@ struct PortRecord: Identifiable, Hashable, Sendable {
     }
 }
 
+enum PortCollectionSource: String, Sendable {
+    case darwin, lsof, lsofFallback
+}
+
+struct PortCollectionDiagnostics: Sendable {
+    var source: PortCollectionSource = .lsof
+    var collectionDuration: TimeInterval = 0
+    var enrichmentDuration: TimeInterval = 0
+    var permissionDenied = 0
+    var vanished = 0
+    var failures = 0
+    var fallbackReason: String?
+}
+
 struct PortSnapshot: Sendable {
     let records: [PortRecord]
     let capturedAt: Date
     let duration: TimeInterval
     let isPartial: Bool
     let activitySnapshot: PortActivitySnapshot
+    let diagnostics: PortCollectionDiagnostics
 
     init(
         records: [PortRecord],
         capturedAt: Date,
         duration: TimeInterval,
         isPartial: Bool,
-        activitySnapshot: PortActivitySnapshot? = nil
+        activitySnapshot: PortActivitySnapshot? = nil,
+        diagnostics: PortCollectionDiagnostics = PortCollectionDiagnostics()
     ) {
         self.records = records
         self.capturedAt = capturedAt
         self.duration = duration
         self.isPartial = isPartial
         self.activitySnapshot = activitySnapshot ?? PortActivitySnapshot.capture(from: records)
+        self.diagnostics = diagnostics
     }
 }
 

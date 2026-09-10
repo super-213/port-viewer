@@ -1486,6 +1486,7 @@ private struct RecordDetailView: View {
                             allItems: allItems,
                             allRecords: allRecords,
                             queryDuration: queryDuration,
+                            queryDiagnostics: portViewModel.lastQueryDiagnostics,
                             lastSuccessfulUpdate: lastSuccessfulUpdate,
                             isExpanded: $technicalDetailsExpanded,
                             onSelectItem: onSelectItem
@@ -2154,6 +2155,7 @@ private struct TechnicalDetailsView: View {
     let allItems: [ReadablePortItem]
     let allRecords: [PortRecord]
     let queryDuration: TimeInterval?
+    let queryDiagnostics: PortCollectionDiagnostics?
     let lastSuccessfulUpdate: Date?
     @Binding var isExpanded: Bool
     let onSelectItem: (ReadablePortItem) -> Void
@@ -2264,8 +2266,18 @@ private struct TechnicalDetailsView: View {
                 monospaced: false
             ),
             .init(title: "底层记录数量", value: String(item.rawRecords.count), explanation: "当前易读项目包含的原始系统记录数量"),
-            .init(title: "本次查询耗时", value: queryDuration.map { String(format: "%.0f ms", $0 * 1_000) } ?? "无法获取", explanation: "系统工具完成最近一次查询所用时间")
+            .init(title: "采集来源", value: collectionSource, explanation: "最近一次端口快照使用的采集方式"),
+            .init(title: "本次查询耗时", value: queryDuration.map { String(format: "%.0f ms", $0 * 1_000) } ?? "无法获取", explanation: "包含端口采集和项目、服务信息补全的总耗时")
         ]
+    }
+
+    private var collectionSource: String {
+        switch queryDiagnostics?.source {
+        case .darwin: L10n.string("macOS 原生 API")
+        case .lsof: "lsof"
+        case .lsofFallback: L10n.string("lsof（原生采集回退）")
+        case nil: L10n.string("无法获取")
+        }
     }
 
     private var parentProcessDescription: String {

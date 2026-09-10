@@ -10,7 +10,7 @@
   </p>
 </div>
 
-Port Viewer 是一款使用 SwiftUI 构建的 macOS 原生端口查看工具。它把系统 `lsof` 返回的进程、端口和连接信息转换成更容易理解的中文结论，让不熟悉命令行的用户也能快速找到端口占用者，并在明确了解影响后结束对应进程。
+Port Viewer 是一款使用 SwiftUI 构建的 macOS 原生端口查看工具。它把 macOS 原生 API 返回的进程、端口和连接信息转换成更容易理解的中文结论，让不熟悉命令行的用户也能快速找到端口占用者，并在明确了解影响后结束对应进程。
 
 所有数据处理都在本机完成，不需要账号，也不会上传进程、连接或扫描结果；主动扫描只会连接用户指定的目标。
 
@@ -96,7 +96,7 @@ Darwin 的身份读取与 `kill` 不是原子操作；上述校验缩小竞争�
 
 ## 安全与隐私
 
-- 端口信息来自本机 `/usr/sbin/lsof`，查询与解析均在本地执行。
+- 普通刷新通过 macOS `libproc` 采集 TCP/UDP，涵盖文件描述符和 Mach fileport；异常时回退到系统 `/usr/sbin/lsof`。结束进程前始终使用新的 `lsof` 快照校验，所有查询均在本地执行。
 - 主动扫描直接使用系统 Network framework 建立 TCP 连接，不执行用户输入的 Shell 命令，也不上传扫描结果。
 - 请只扫描自己拥有或明确获准测试的设备和网络；应用不会绕过防火墙或隐藏扫描来源。
 - “未探测到开放”不等同于确定关闭：目标也可能被防火墙过滤、无法路由或没有在所选超时时间内响应。
@@ -113,13 +113,15 @@ Darwin 的身份读取与 `kill` 不是原子操作；上述校验缩小竞争�
 flowchart LR
     subgraph System["macOS 系统"]
         LSOF["/usr/sbin/lsof"]
-        PROC["proc_pidpath"]
+        PROC["libproc / proc_pidpath"]
         KILL["Darwin.kill"]
         NETWORK["Network.framework"]
     end
 
     subgraph Services["协议化 Service 层"]
         QUERY["PortQuerying"]
+        ROUTER["PortQueryService actor"]
+        NATIVE["DarwinPortService"]
         CLIENT["LsofService actor"]
         PARSER["LsofParser"]
         CONTROL["ProcessControlling"]
@@ -144,8 +146,12 @@ flowchart LR
     end
 
     LSOF --> CLIENT
+    QUERY --> ROUTER
+    ROUTER -->|普通刷新| NATIVE
+    ROUTER -->|回退 / fresh 校验| CLIENT
+    PROC --> NATIVE --> RAW
     PROC --> CLIENT
-    QUERY --> CLIENT --> PARSER --> RAW --> STORE
+    CLIENT --> PARSER --> RAW --> STORE
     STORE --> MAIN_VM --> PRESENTATION --> MAIN
     STORE --> MENU_VM --> MENU
     SETTINGS -. "UserDefaults" .-> STORE
@@ -154,7 +160,7 @@ flowchart LR
     SCAN_VM --> SCAN_UI
 ```
 
-> 图中的 `proc_pidpath` 用于补充可执行文件路径；`Darwin.kill` 仅在用户确认结束进程后调用。
+> 图中的 libproc API 用于端口采集、进程身份与路径补充；`Darwin.kill` 仅在用户确认结束进程后调用。
 
 ### 分层职责
 
@@ -166,7 +172,7 @@ flowchart LR
 | 页面 ViewModel | [`MainWindowViewModel.swift`](PortViewer/ViewModels/MainWindowViewModel.swift)、[`MenuBarViewModel.swift`](PortViewer/ViewModels/MenuBarViewModel.swift) | 主窗口筛选/排序/选择恢复和菜单栏搜索/展示上限；缓存重复分组结果 |
 | 展示模型 | [`NetworkPresentation.swift`](PortViewer/Models/NetworkPresentation.swift) | 将原始网络记录归组，生成中文状态、访问范围、连接结论和活动变化 |
 | 数据模型 | [`PortRecord.swift`](PortViewer/Models/PortRecord.swift) | 定义原始端口记录、查询快照、端点格式和搜索匹配规则 |
-| 查询服务 | [`PortQuerying.swift`](PortViewer/Services/PortQuerying.swift)、[`LsofClient.swift`](PortViewer/Services/LsofClient.swift)、[`LsofParser.swift`](PortViewer/Services/LsofParser.swift) | single-flight 查询、强制新查询、异步 Pipe 读取、超时/取消清理、解析和进程路径补充 |
+| 查询服务 | [`PortQueryService.swift`](PortViewer/Services/PortQueryService.swift)、[`DarwinPortService.swift`](PortViewer/Services/DarwinPortService.swift)、[`DarwinSocketReader.swift`](PortViewer/Services/DarwinSocketReader.swift)、[`LsofClient.swift`](PortViewer/Services/LsofClient.swift) | 跨后端 single-flight、原生采集、lsof 回退与 fresh 校验、取消清理及共享元数据补全 |
 | 扫描服务 | [`NetworkScanner.swift`](PortViewer/Services/NetworkScanner.swift) | 使用 Network framework 并发执行 TCP connect 探测，限制并发并支持超时与取消 |
 | 扫描页面 | [`NetworkScan.swift`](PortViewer/Models/NetworkScan.swift)、[`NetworkScanViewModel.swift`](PortViewer/ViewModels/NetworkScanViewModel.swift)、[`NetworkScanView.swift`](PortViewer/Views/NetworkScanView.swift) | 解析主机、CIDR 与端口范围，校验扫描规模，并展示进度和开放端口报告 |
 | 进程服务 | [`ProcessControlling.swift`](PortViewer/Services/ProcessControlling.swift)、[`ProcessController.swift`](PortViewer/Services/ProcessController.swift) | 检查 PID、发送信号、稳定映射系统错误并保护关键系统进程 |
@@ -174,19 +180,20 @@ flowchart LR
 ### 查询与刷新数据流
 
 1. `PortViewModel.start()` 触发首次查询，并持有可取消的自动刷新循环。
-2. `LsofService` 以 actor 隔离 single-flight 状态，再通过 utility 优先级任务执行 `/usr/sbin/lsof -nP -iTCP -iUDP -F0pcuLRftnPT`。
-3. `LsofParser` 解析 NUL 分隔字段，生成稳定标识的 `PortRecord`；随后使用 `proc_pidpath` 尽可能补充可执行文件路径。
+2. `PortQueryService` 以 actor 隔离跨后端 single-flight 状态；普通刷新在 utility 任务中调用 `DarwinPortService`，通过 `proc_listpids`、FD/fileport 列表与 socket info 采集端口。
+3. 原生明确失败或不完整时回退 `LsofService`；危险操作的 `.fresh` 查询始终重新执行 `/usr/sbin/lsof -nP -iTCP -iUDP -F0pcuLRftnPT`，由 `LsofParser` 解析。两条路径共享进程元数据缓存和服务识别，补充项目、可执行路径及启动身份。
 4. 查询结果以完整 `PortSnapshot` 返回，并在 `@MainActor @Observable` 的 `PortViewModel` 中一次性应用。
 5. `MainWindowViewModel` 只在原始记录变化时重新生成 `ReadablePortItem`，再在内存快照上搜索、筛选和排序。
 6. Observation 只让读取了相应状态的 SwiftUI 视图失效；Task、Service 引用与缓存通过 `@ObservationIgnored` 排除。
 
 刷新机制的关键约束：
 
-- 主窗口可见时默认每 3 秒刷新，后台默认每 5 秒刷新，可在设置页调整。
-- 单次查询最多等待 5 秒；Process 与 Pipe 被包装为可取消异步会话，完成、超时和取消都等待子进程退出及两个 Pipe 到达 EOF。
-- 普通查询复用正在执行的 single-flight；危险操作的 `.fresh` 查询会等待当前查询释放资源后再启动，不会并行运行第二个 `lsof`。
+- 使用现有自适应刷新间隔：前台 3–10 秒、菜单栏 5–15 秒，默认后台 30–60 秒，可在设置页调整基础间隔。
+- 原生采集具有 5 秒协作式时间预算、列表扩容上限和取消检查；每次 lsof 执行的超时为 5 秒。发生回退时会先后执行两个后端，总耗时可能更长；项目与服务补全另计。Process 与 Pipe 继续使用可取消异步会话。
+- 普通查询复用正在执行的 single-flight；危险操作的 `.fresh` 等待当前刷新结束后启动独立 lsof 查询。lsof 不可用或结果不完整时，禁止危险操作，不接受原生快照替代。
 - 自动刷新不会堆积；查询期间收到的手动刷新会合并为下一次查询。
-- 单个等待者取消不会取消共享查询；应用退出会由全局 ViewModel 明确取消当前查询。
+- 单个等待者取消不会取消共享查询；应用退出会由全局 ViewModel 明确取消当前查询。取消不会触发回退。
+- “技术详情”显示实际采集来源和包含信息补全的总耗时。快照 diagnostics 分别记录采集、补全耗时以及权限限制、进程消失和回退原因。
 - 完整查询失败时保留上一份快照和最后成功时间；部分结果会明确标记，不会被当作完整结果用于危险操作。
 - 每次快照会与上次结果比较，短暂展示监听端口中新出现、结束或变化的连接活动。
 - 完整快照会生成活动构成、协议/IP、监听访问范围和应用排名，并保留最近 30 分钟的会话内趋势；部分快照不进入趋势基线，退出应用后历史自动清空。
@@ -269,7 +276,7 @@ port-viewer/
 
 ## 测试与持续集成
 
-运行全部单元测试和本机 `lsof` 集成测试：
+运行全部单元测试和原生/lsof 实机对照测试：
 
 ```bash
 xcodebuild \
@@ -295,6 +302,7 @@ GitHub Actions 会在推送或向 `main` 分支提交 Pull Request 时，使用 
 
 ## 开发扩展指引
 
+- **修改端口采集**：同步维护原生与 lsof 的字段语义，运行 `DarwinPortServiceTests`、`DarwinSocketIntegrationTests` 和 `PortQueryServiceTests`；生产后端基准与限制见 [实施记录](docs/native-port-collection.md)。
 - **新增 `lsof` 字段**：依次更新 `LsofParser`、`PortRecord`、需要的展示模型，并在 `LsofParserTests` 增加输入样本。
 - **新增状态或易懂文案**：集中修改 `NetworkPresentation.swift`，同时补充 `NetworkPresentationTests`，避免技术状态与用户结论散落在视图中。
 - **新增筛选项**：优先放入 `MainWindowViewModel` 并在现有快照上实现，不要让界面输入直接触发新的系统查询。

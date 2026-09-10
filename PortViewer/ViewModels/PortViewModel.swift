@@ -125,6 +125,7 @@ final class PortViewModel {
     private(set) var state: QueryPresentationState = .loading
     private(set) var lastSuccessfulUpdate: Date?
     private(set) var lastQueryDuration: TimeInterval?
+    private(set) var lastQueryDiagnostics: PortCollectionDiagnostics?
     private(set) var isRefreshing = false
     private(set) var isPerformingOperation = false
     private(set) var isPaused = false
@@ -629,6 +630,7 @@ final class PortViewModel {
             otherNetworkActivityCount = nextOtherNetworkActivityCount
         }
         lastQueryDuration = snapshot.duration
+        lastQueryDiagnostics = snapshot.diagnostics
         if !snapshot.isPartial {
             lastSuccessfulUpdate = snapshot.capturedAt
         }
@@ -636,7 +638,7 @@ final class PortViewModel {
         if isPaused {
             nextState = .paused
         } else if snapshot.isPartial {
-            nextState = .partial(L10n.string("lsof 返回了部分结果；已展示可安全解析的数据。"))
+            nextState = .partial(L10n.string("端口查询返回了部分结果；已展示可读取的数据。"))
         } else {
             nextState = snapshot.records.isEmpty ? .empty : .ready
         }
@@ -687,7 +689,7 @@ final class PortViewModel {
     }
 
     private func updateListenerActivity(with snapshot: PortSnapshot) {
-        // Partial lsof output can omit live sockets, so never treat it as evidence that a connection ended.
+        // Partial collection can omit live sockets, so never treat it as evidence that a connection ended.
         guard !snapshot.isPartial else { return }
 
         let nextSnapshot = snapshot.activitySnapshot

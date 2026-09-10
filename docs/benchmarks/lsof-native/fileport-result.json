@@ -1,0 +1,5 @@
+{
+  "fixture": "fileport-only TCP listener",
+  "lsof_matches": 1,
+  "native_matches": 0
+}

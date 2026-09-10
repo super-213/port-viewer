@@ -65,7 +65,7 @@ final class PortViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.lastSuccessfulUpdate, Date(timeIntervalSince1970: 200))
 
         await viewModel.refreshForTesting()
-        XCTAssertEqual(viewModel.state, .partial(L10n.string("lsof 返回了部分结果；已展示可安全解析的数据。")))
+        XCTAssertEqual(viewModel.state, .partial(L10n.string("端口查询返回了部分结果；已展示可读取的数据。")))
         XCTAssertEqual(viewModel.lastSuccessfulUpdate, Date(timeIntervalSince1970: 200), "部分结果不是成功基线")
 
         await viewModel.refreshForTesting()

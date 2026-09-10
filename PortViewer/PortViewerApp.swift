@@ -34,7 +34,7 @@ struct PortViewerApp: App {
     init() {
         let serviceContexts = ManagedServiceController()
         let portViewModel = PortViewModel(
-            queryService: LsofService(serviceContexts: serviceContexts),
+            queryService: PortQueryService(serviceContexts: serviceContexts),
             processService: ProcessService(),
             serviceContexts: serviceContexts
         )

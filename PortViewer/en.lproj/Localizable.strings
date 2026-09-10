@@ -509,3 +509,11 @@
 "操作前结合 PID 核对进程身份" = "Checked together with the PID before an operation";
 "服务管理" = "Service Manager";
 "通过对应管理器停止整个服务" = "Stops the whole service using its manager";
+
+/* Native port collection */
+"端口查询返回了部分结果；已展示可读取的数据。" = "The port query returned partial results. Available data is shown.";
+"采集来源" = "Collection source";
+"最近一次端口快照使用的采集方式" = "The collection method used for the latest port snapshot";
+"包含端口采集和项目、服务信息补全的总耗时" = "Total time including port collection and project and service details";
+"macOS 原生 API" = "macOS native API";
+"lsof（原生采集回退）" = "lsof (native fallback)";

@@ -1,0 +1,110 @@
+{
+  "machine": "arm64",
+  "os": "26.6.2",
+  "samples_per_backend": 30,
+  "integrations": "ManagedServiceController enabled; Homebrew available; Docker local socket unavailable",
+  "baseline": {
+    "coverage": "stable=214, matched=214, missing=0, unexplained_extra=0",
+    "extra_fixture_sockets": 0,
+    "native": {
+      "total_ms": {
+        "p50": 16.493,
+        "p95": 17.563
+      },
+      "collection_ms": {
+        "p50": 5.509,
+        "p95": 5.799
+      },
+      "enrichment_ms": {
+        "p50": 10.881,
+        "p95": 11.721
+      },
+      "cpu_ms": {
+        "p50": 8.406,
+        "p95": 8.554
+      },
+      "records": {
+        "p50": 216.5,
+        "p95": 217.0
+      },
+      "partial_snapshots": 0,
+      "fallback_snapshots": 0
+    },
+    "lsof": {
+      "total_ms": {
+        "p50": 65.906,
+        "p95": 80.29
+      },
+      "collection_ms": {
+        "p50": 54.001,
+        "p95": 66.046
+      },
+      "enrichment_ms": {
+        "p50": 11.16,
+        "p95": 12.339
+      },
+      "cpu_ms": {
+        "p50": 54.682,
+        "p95": 55.947
+      },
+      "records": {
+        "p50": 216.0,
+        "p95": 217.0
+      },
+      "partial_snapshots": 0,
+      "fallback_snapshots": 0
+    }
+  },
+  "loaded": {
+    "coverage": "stable=1015, matched=1015, missing=0, unexplained_extra=0",
+    "extra_fixture_sockets": 800,
+    "native": {
+      "total_ms": {
+        "p50": 41.598,
+        "p95": 44.039
+      },
+      "collection_ms": {
+        "p50": 9.409,
+        "p95": 9.777
+      },
+      "enrichment_ms": {
+        "p50": 31.591,
+        "p95": 34.026
+      },
+      "cpu_ms": {
+        "p50": 19.214,
+        "p95": 19.943
+      },
+      "records": {
+        "p50": 1014.0,
+        "p95": 1014.0
+      },
+      "partial_snapshots": 0,
+      "fallback_snapshots": 0
+    },
+    "lsof": {
+      "total_ms": {
+        "p50": 90.129,
+        "p95": 99.082
+      },
+      "collection_ms": {
+        "p50": 57.001,
+        "p95": 65.281
+      },
+      "enrichment_ms": {
+        "p50": 32.349,
+        "p95": 33.36
+      },
+      "cpu_ms": {
+        "p50": 64.739,
+        "p95": 65.683
+      },
+      "records": {
+        "p50": 1014.0,
+        "p95": 1014.0
+      },
+      "partial_snapshots": 0,
+      "fallback_snapshots": 0
+    }
+  }
+}

@@ -378,7 +378,8 @@ actor LsofService: PortQuerying {
                     records: [],
                     capturedAt: Date(),
                     duration: duration,
-                    isPartial: false
+                    isPartial: false,
+                    diagnostics: PortCollectionDiagnostics(collectionDuration: duration)
                 )
             }
 
@@ -399,8 +400,12 @@ actor LsofService: PortQuerying {
             return PortSnapshot(
                 records: enrichedRecords,
                 capturedAt: Date(),
-                duration: duration,
-                isPartial: status != 0
+                duration: startedAt.duration(to: .now).timeInterval,
+                isPartial: status != 0,
+                diagnostics: PortCollectionDiagnostics(
+                    collectionDuration: duration,
+                    enrichmentDuration: startedAt.duration(to: .now).timeInterval - duration
+                )
             )
         }
         return InFlightQuery(id: id, task: task)
@@ -448,6 +453,9 @@ actor ProcessMetadataCache {
         for record in records where attempted.insert(record.pid).inserted {
             let pid = record.pid
             guard let identity = ProcessMetadataResolver.identity(for: pid) else { continue }
+            // Native records already identify the process that owned the socket.
+            // Preserve that identity if the PID was reused before enrichment.
+            if let scannedIdentity = record.context.identity, scannedIdentity != identity { continue }
             activeIdentities.insert(identity)
             let entry: Entry
             if !forceRefresh,
