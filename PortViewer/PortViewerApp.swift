@@ -55,7 +55,6 @@ struct PortViewerApp: App {
                 viewModel: mainWindowViewModel,
                 networkScanViewModel: networkScanViewModel
             )
-            .preferredColorScheme(.dark)
             .task {
                 appDelegate.terminationHandler = {
                     portViewModel.stop()
@@ -64,7 +63,7 @@ struct PortViewerApp: App {
                 portViewModel.start()
             }
         }
-        .defaultSize(width: 1_180, height: 820)
+        .defaultSize(width: 1_280, height: 820)
         .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
@@ -77,7 +76,6 @@ struct PortViewerApp: App {
                 viewModel: menuBarViewModel,
                 mainWindowViewModel: mainWindowViewModel
             )
-            .preferredColorScheme(.dark)
             .task {
                 appDelegate.terminationHandler = {
                     portViewModel.stop()
@@ -92,7 +90,6 @@ struct PortViewerApp: App {
 
         Settings {
             SettingsView()
-                .preferredColorScheme(.dark)
         }
     }
 }

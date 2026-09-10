@@ -214,20 +214,6 @@ private struct PremiumPickerButtonStyle: ButtonStyle {
                     )
                 }
                 .overlay {
-                    if !reduceTransparency {
-                        shape
-                            .inset(by: 1)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [Color.white.opacity(0.20), .clear],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 0.5
-                            )
-                    }
-                }
-                .overlay {
                     if isFocused {
                         shape
                             .inset(by: -3)
@@ -352,6 +338,9 @@ struct PremiumSearchField: View {
         .premiumControlSurface(isHovered: isHovered, isFocused: isFocused)
         .onHover { hovering in
             isHovered = hovering
+        }
+        .onAppear {
+            if focusRequest.wrappedValue { isFocused = true }
         }
         .onChange(of: focusRequest.wrappedValue) { _, requested in
             if requested { isFocused = true }

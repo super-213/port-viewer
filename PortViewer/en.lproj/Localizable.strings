@@ -470,3 +470,6 @@
 "展开组成此服务的进程列表" = "Expand the list of processes in this service";
 "正在监听，暂未发现连接" = "Listening; no connections observed yet";
 "当前观察到 %lld 条连接" = "%lld connections currently observed";
+
+"连接流程" = "Connection Flow";
+"页面" = "Page";

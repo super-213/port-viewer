@@ -6,46 +6,40 @@ struct MainWindowView: View {
     @Bindable var portViewModel: PortViewModel
     @Bindable var viewModel: MainWindowViewModel
     @Bindable var networkScanViewModel: NetworkScanViewModel
-    @State private var technicalDetailsExpanded = false
+    @State private var technicalDetailsExpanded = true
     @State private var searchIsFocused = false
-    @State private var sidebarIsVisible = true
-    @State private var selectedPage: MainSidebarPage = .overview
+    @State private var selectedPage: MainPage = .activity(.waiting)
 
     var body: some View {
         ZStack {
             PremiumCanvas()
-            HSplitView {
-                if sidebarIsVisible {
-                    sidebar
-                        .frame(minWidth: 188, idealWidth: 214, maxWidth: 250)
-                }
-
-                VStack(spacing: 0) {
-                    if selectedPage != .scanner, let issue = portViewModel.state.issueMessage {
-                        QueryBanner(message: issue, symbol: "exclamationmark.triangle.fill", color: PVPalette.warning) {
-                            portViewModel.refreshNow()
-                        }
-                    } else if selectedPage != .scanner, portViewModel.isPaused {
-                        QueryBanner(
-                            message: "自动刷新已暂停，当前数据可能已过期。",
-                            symbol: "pause.circle.fill",
-                            color: PVPalette.neutral,
-                            actionTitle: "继续刷新"
-                        ) {
-                            portViewModel.togglePause()
-                        }
+            VStack(spacing: 0) {
+                if selectedPage != .scanner, let issue = portViewModel.state.issueMessage {
+                    QueryBanner(message: issue, symbol: "exclamationmark.triangle.fill", color: PVPalette.warning) {
+                        portViewModel.refreshNow()
                     }
-
-                    mainContent
+                } else if selectedPage != .scanner, portViewModel.isPaused {
+                    QueryBanner(
+                        message: "自动刷新已暂停，当前数据可能已过期。",
+                        symbol: "pause.circle.fill",
+                        color: PVPalette.neutral,
+                        actionTitle: "继续刷新"
+                    ) {
+                        portViewModel.togglePause()
+                    }
                 }
+                mainContent
             }
         }
-        .containerBackground(.clear, for: .window)
-        .frame(minWidth: 980, minHeight: 720)
+        .containerBackground(PVPalette.canvasBase, for: .window)
+        .frame(minWidth: 1_080, minHeight: 700)
         .toolbar { toolbarContent }
-        .toolbarBackground(.thickMaterial, for: .windowToolbar)
+        .toolbarBackground(PVPalette.canvasBase, for: .windowToolbar)
         .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
         .onAppear {
+            if case .activity = selectedPage {
+                selectedPage = .activity(viewModel.scope)
+            }
             portViewModel.setMainWindowVisible(true)
         }
         .onDisappear { portViewModel.setMainWindowVisible(false) }
@@ -92,61 +86,38 @@ struct MainWindowView: View {
         }
     }
 
-    private var sidebar: some View {
-        List(selection: $selectedPage) {
-            Label("总览", systemImage: "chart.bar.xaxis")
-                .tag(MainSidebarPage.overview)
-                .help("查看活动统计和端口分布")
-                .accessibilityLabel("总览，查看活动统计和端口分布")
-
-            Section("活动") {
-                ForEach(SidebarScope.allCases) { item in
-                    Label {
-                        HStack(spacing: 8) {
-                            Text(L10n.string(item.rawValue))
-                                .lineLimit(1)
-                            Spacer(minLength: 4)
-                            Text(String(viewModel.count(for: item)))
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(PVPalette.textSecondary)
-                                .monospacedDigit()
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(PVPalette.textPrimary.opacity(0.055), in: Capsule())
-                        }
-                    } icon: {
-                        Image(systemName: item.symbol)
-                    }
-                    .tag(MainSidebarPage.activity(item))
-                    .help(item.explanation)
-                    .accessibilityLabel(L10n.format(
-                        "%@，%lld 条。%@",
-                        L10n.string(item.rawValue),
-                        viewModel.count(for: item),
-                        item.explanation
-                    ))
-                }
+    private var pageNavigation: some View {
+        HStack(spacing: 2) {
+            navigationButton("总览", page: .overview)
+            ForEach(SidebarScope.allCases) { scope in
+                navigationButton(scope == .other ? "其他活动" : scope.rawValue, page: .activity(scope))
             }
+            navigationButton("网络扫描", page: .scanner)
+        }
+        .padding(4)
+        .background(PVPalette.surfaceContent, in: Capsule())
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("页面")
+    }
 
-            Section("工具") {
-                Label("网络扫描", systemImage: "dot.radiowaves.left.and.right")
-                    .tag(MainSidebarPage.scanner)
-                    .help("主动测试另一台设备或 IPv4 网段的 TCP 端口")
-                    .accessibilityLabel("网络扫描，主动测试远程 TCP 端口")
-            }
+    private func navigationButton(_ title: String, page: MainPage) -> some View {
+        Button {
+            selectedPage = page
+        } label: {
+            Text(L10n.string(title))
+                .font(.system(size: 14, weight: selectedPage == page ? .semibold : .regular))
+                .foregroundStyle(selectedPage == page ? PVPalette.textPrimary : PVPalette.textSecondary)
+                .padding(.horizontal, 14)
+                .frame(height: 32)
+                .background(
+                    selectedPage == page ? PVPalette.textPrimary.opacity(0.09) : .clear,
+                    in: Capsule()
+                )
+                .contentShape(Capsule())
         }
-        .listStyle(.sidebar)
-        .tint(PVPalette.accentPrimary)
-        .scrollContentBackground(.hidden)
-        .background {
-            Rectangle()
-                .fill(PVPalette.surfaceBento)
-                .overlay(alignment: .trailing) {
-                    Rectangle()
-                        .fill(PVPalette.edgeSeparator)
-                        .frame(width: 1)
-                }
-        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selectedPage == page ? .isSelected : [])
     }
 
     @ViewBuilder
@@ -176,49 +147,64 @@ struct MainWindowView: View {
     }
 
     private var activityWorkspace: some View {
-        VStack(spacing: 0) {
-            FilterBar(
-                scope: $viewModel.scope,
-                accessFilter: $viewModel.accessFilter,
-                ownerFilter: $viewModel.ownerFilter,
-                connectionPhaseFilter: $viewModel.connectionPhaseFilter,
-                protocolFilter: $viewModel.protocolFilter,
-                ipFilter: $viewModel.ipFilter,
-                stateFilter: $viewModel.stateFilter,
-                stateOptions: viewModel.stateOptions,
-                activeFilterLabels: sidebarIsVisible
-                    ? viewModel.activeFilterLabels.filter { $0 != viewModel.scope.rawValue }
-                    : viewModel.activeFilterLabels,
-                visibleCount: viewModel.displayedItems.count,
-                showsScopePicker: !sidebarIsVisible,
-                clearFilter: viewModel.clearFilter,
-                reset: viewModel.resetFilters
-            )
+        HSplitView {
+            VStack(spacing: 0) {
+                activitySummary
+                PremiumSeparator()
 
-            Group {
-                if viewModel.selectedItem == nil {
-                    VStack(spacing: 0) {
-                        tableOrState
-                            .frame(minHeight: 280)
-                        PremiumSeparator()
-                        recordDetail
-                            .frame(height: 76)
-                    }
-                } else {
-                    VSplitView {
-                        tableOrState
-                            .frame(minHeight: 240, idealHeight: 390)
+                PremiumSearchField(
+                    text: $viewModel.searchText,
+                    prompt: "搜索应用名称或端口，例如 3000",
+                    focusRequest: $searchIsFocused
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .accessibilityLabel("搜索应用名称或端口")
 
-                        recordDetail
-                            .frame(minHeight: 220, idealHeight: 300)
-                    }
-                }
+                FilterBar(
+                    scope: $viewModel.scope,
+                    accessFilter: $viewModel.accessFilter,
+                    ownerFilter: $viewModel.ownerFilter,
+                    connectionPhaseFilter: $viewModel.connectionPhaseFilter,
+                    protocolFilter: $viewModel.protocolFilter,
+                    ipFilter: $viewModel.ipFilter,
+                    stateFilter: $viewModel.stateFilter,
+                    stateOptions: viewModel.stateOptions,
+                    activeFilterLabels: viewModel.activeFilterLabels.filter { $0 != viewModel.scope.rawValue },
+                    visibleCount: viewModel.displayedItems.count,
+                    clearFilter: viewModel.clearFilter,
+                    reset: viewModel.resetFilters
+                )
+                tableOrState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .clipShape(RoundedRectangle(cornerRadius: PVRadius.panel, style: .continuous))
-            .frostedSurface(.content, radius: PVRadius.panel)
-            .padding(.horizontal, 10)
-            .padding(.bottom, 10)
+            .frame(minWidth: 740, idealWidth: 900, maxWidth: .infinity, maxHeight: .infinity)
+            .background(PVPalette.surfaceContent)
+
+            recordDetail
+                .frame(minWidth: 300, idealWidth: 330, maxWidth: 360, maxHeight: .infinity)
+                .background(PVPalette.surfaceBento)
         }
+    }
+
+    private var activitySummary: some View {
+        HStack(spacing: 12) {
+            ForEach(SidebarScope.allCases) { scope in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(L10n.string(scope == .other ? "其他活动" : scope.rawValue))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(String(viewModel.count(for: scope)))
+                        .font(.system(size: 22, weight: .medium))
+                        .monospacedDigit()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
     }
 
     private func showActivity(_ scope: SidebarScope) {
@@ -266,33 +252,8 @@ struct MainWindowView: View {
 
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            Button {
-                sidebarIsVisible.toggle()
-            } label: {
-                Label(L10n.string(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏"), systemImage: "sidebar.left")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(QuietButtonStyle())
-            .help(L10n.string(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏"))
-            .accessibilityLabel(L10n.string(sidebarIsVisible ? "隐藏侧栏" : "显示侧栏"))
-        }
-
         ToolbarItem(placement: .principal) {
-            if selectedPage != .scanner {
-                PremiumSearchField(
-                    text: $viewModel.searchText,
-                    prompt: "搜索应用名称或端口，例如 3000",
-                    focusRequest: $searchIsFocused
-                )
-                .frame(width: 310)
-                .accessibilityLabel("搜索应用名称或端口")
-            } else {
-                Text("网络扫描")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(PVPalette.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-            }
+            pageNavigation
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
@@ -452,10 +413,7 @@ private struct ActivityOverview: View {
             }
             .padding(14)
         }
-        .frostedSurface(.chrome, radius: PVRadius.panel)
-        .padding(.horizontal, 10)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
+        .background(PVPalette.surfaceContent)
         .popover(isPresented: $showsHelp) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("统计口径")
@@ -979,7 +937,7 @@ private extension OverviewBreakdownKind {
     }
 }
 
-private enum MainSidebarPage: Hashable {
+private enum MainPage: Hashable {
     case overview
     case activity(SidebarScope)
     case scanner
@@ -1001,7 +959,7 @@ private struct OverviewMetricButton: View {
             HStack(spacing: 11) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(String(value))
-                        .font(.system(size: 26, weight: .semibold, design: .rounded))
+                        .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(PVPalette.textPrimary)
                         .monospacedDigit()
 
@@ -1020,9 +978,7 @@ private struct OverviewMetricButton: View {
 
                 Image(systemName: symbol)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(color)
-                    .frame(width: 36, height: 36)
-                    .background(color.opacity(isSelected ? 0.18 : 0.10), in: RoundedRectangle(cornerRadius: PVRadius.node, style: .continuous))
+                    .foregroundStyle(PVPalette.textTertiary)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -1076,7 +1032,6 @@ private struct FilterBar: View {
     let stateOptions: [String]
     let activeFilterLabels: [String]
     let visibleCount: Int
-    let showsScopePicker: Bool
     let clearFilter: (String) -> Void
     let reset: () -> Void
 
@@ -1084,20 +1039,8 @@ private struct FilterBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                if showsScopePicker {
-                    PremiumPicker(
-                        "活动类型",
-                        symbol: "waveform.path.ecg",
-                        options: SidebarScope.allCases,
-                        selection: $scope,
-                        optionText: \.rawValue
-                    )
-                    .frame(width: 145)
-                }
-
                 PremiumPicker(
                     "访问范围",
-                    symbol: "network",
                     options: AccessFilter.allCases,
                     selection: $accessFilter,
                     optionText: \.rawValue
@@ -1106,7 +1049,6 @@ private struct FilterBar: View {
 
                 PremiumPicker(
                     "归属",
-                    symbol: "person.crop.circle",
                     options: OwnerFilter.allCases,
                     selection: $ownerFilter,
                     optionText: \.rawValue
@@ -1260,98 +1202,100 @@ private struct PortTable: View {
     var body: some View {
         Table(items, selection: $selectedID, sortOrder: $sortOrder) {
             TableColumn("应用/服务", sortUsing: ReadablePortSortComparator(field: .process)) { item in
-                HStack(alignment: .top, spacing: 7) {
+                HStack(alignment: .top, spacing: 6) {
                     if item.processCount > 1 {
-                        ProcessGroupDisclosureButton(
-                            isExpanded: expandedProcessGroups.contains(item.id)
-                        ) {
+                        ProcessGroupDisclosureButton(isExpanded: expandedProcessGroups.contains(item.id)) {
                             if expandedProcessGroups.contains(item.id) {
                                 expandedProcessGroups.remove(item.id)
                             } else {
                                 expandedProcessGroups.insert(item.id)
                             }
                         }
+                    } else {
+                        Color.clear.frame(width: 16, height: 20)
                     }
-                    ProcessIconView(record: item.representative, size: 20)
-                    VStack(alignment: .leading, spacing: 1) {
+                    ProcessIconView(record: item.representative, size: 18)
+                    VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 5) {
                             Text(item.processName).lineLimit(1)
+                            if item.processCount > 1 {
+                                Text("(\(item.processCount))")
+                                    .foregroundStyle(.secondary)
+                            }
                             if !item.representative.belongsToCurrentUser {
                                 Image(systemName: "lock.fill")
                                     .font(.caption2)
-                                    .foregroundStyle(PVPalette.warning)
+                                    .foregroundStyle(.secondary)
                                     .help("其他用户的应用/服务")
                             }
                             if ProcessProtectionPolicy.isCritical(item.representative) {
                                 Image(systemName: "exclamationmark.shield.fill")
                                     .font(.caption2)
-                                    .foregroundStyle(PVPalette.warning)
+                                    .foregroundStyle(.secondary)
                                     .help("关键系统进程")
                             }
                         }
-                        ActivitySummaryBadges(
-                            item: item,
-                            listenerProcessCount: listenerProcessCount(for: item)
-                        )
                         if expandedProcessGroups.contains(item.id) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                ForEach(item.processSummaries) { process in
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "person.crop.circle")
-                                        Text(process.processName + " · PID " + String(process.pid))
-                                            .lineLimit(1)
-                                        if process.recordCount > 1 {
-                                            Text("\(process.recordCount) 条")
-                                                .foregroundStyle(.tertiary)
-                                        }
-                                    }
-                                }
+                            ForEach(item.processSummaries) { process in
+                                Text(process.processName + " · PID " + String(process.pid))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                             }
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 3)
-                            .transition(.opacity)
                         }
                     }
                 }
+                .padding(.vertical, 3)
             }
-            .width(min: 180, ideal: 230)
+            .width(min: 145, ideal: 180)
 
             TableColumn("本机端口", sortUsing: ReadablePortSortComparator(field: .localPort)) { item in
-                CompactPortClusterView(item: item)
-                .help(localPortHelp(for: item))
-                .accessibilityLabel(localPortHelp(for: item))
+                Text(portSummary(for: item))
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1)
+                    .help(localPortHelp(for: item))
+                    .accessibilityLabel(localPortHelp(for: item))
             }
-            .width(min: 105, ideal: 135, max: 165)
+            .width(min: 85, ideal: 110, max: 160)
+
+            TableColumn("协议") { item in
+                Text(item.transport.rawValue)
+                    .foregroundStyle(.secondary)
+            }
+            .width(48)
 
             TableColumn("正在做什么", sortUsing: ReadablePortSortComparator(field: .status)) { item in
-                PortStatusCell(item: item, portViewModel: portViewModel)
+                FriendlyStatusLabel(item: item)
+                    .help(portViewModel.listenerActivitySummary(for: item)?.accessibilityDescription
+                          ?? item.representative.friendlyStatusExplanation)
             }
-            .width(min: 155, ideal: 205)
+            .width(min: 105, ideal: 125, max: 160)
 
-            TableColumn("访问范围/连接到", sortUsing: ReadablePortSortComparator(field: .connection)) { item in
-                CompactTopologyView(
-                    item: item,
-                    listenerProcessCount: listenerProcessCount(for: item)
-                )
+            TableColumn("连接流程", sortUsing: ReadablePortSortComparator(field: .connection)) { item in
+                CompactTopologyView(item: item, listenerProcessCount: listenerProcessCount(for: item))
+                    .padding(.vertical, 5)
             }
-            .width(min: 230, ideal: 300)
+            .width(min: 270, ideal: 330)
         }
-        .tableStyle(.inset(alternatesRowBackgrounds: false))
-        .tint(PVPalette.accentPrimary)
-        .scrollContentBackground(.hidden)
-        .background(TableGlassBackgroundBridge())
+        .tableStyle(.inset(alternatesRowBackgrounds: true))
+        .background(NativeTableBackgroundBridge())
         .accessibilityLabel("应用、本机端口和网络活动列表")
     }
 
     private func listenerProcessCount(for item: ReadablePortItem) -> Int {
         guard item.representative.isListening else { return 0 }
-        let itemPorts = Set(item.localPorts)
+        let ports = Set(item.localPorts)
         return Set(allItems.filter { candidate in
             candidate.representative.isListening
                 && candidate.transport == item.transport
-                && !Set(candidate.localPorts).isDisjoint(with: itemPorts)
+                && !Set(candidate.localPorts).isDisjoint(with: ports)
         }.flatMap(\.rawRecords).map(\.pid)).count
+    }
+
+    private func portSummary(for item: ReadablePortItem) -> String {
+        guard !item.localPorts.isEmpty else { return "*" }
+        let ports = item.localPorts.prefix(2).map(String.init).joined(separator: ", ")
+        return item.localPorts.count > 2 ? ports + " +\(item.localPorts.count - 2)" : ports
     }
 
     private func localPortHelp(for item: ReadablePortItem) -> String {
@@ -1424,11 +1368,12 @@ private struct FriendlyStatusLabel: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: symbol)
-                .font(.caption)
+                .font(.system(size: 8))
+                .foregroundStyle(color)
+                .frame(width: 10)
             Text(item.friendlyStatusTitle)
                 .lineLimit(1)
         }
-        .foregroundStyle(color)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("正在做什么：\(item.friendlyStatusTitle)")
         .help(item.representative.friendlyStatusExplanation)
@@ -1453,35 +1398,6 @@ private struct FriendlyStatusLabel: View {
     }
 }
 
-private struct PortStatusCell: View {
-    let item: ReadablePortItem
-    let portViewModel: PortViewModel
-    private var activitySummary: ListenerActivitySummary? {
-        portViewModel.listenerActivitySummary(for: item)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            FriendlyStatusLabel(item: item)
-            if let activitySummary, let description = activitySummary.inlineDescription {
-                Label(description, systemImage: "arrow.left.arrow.right.circle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(activityColor(for: activitySummary))
-                    .lineLimit(1)
-                    .accessibilityLabel(activitySummary.accessibilityDescription)
-            }
-        }
-        .frame(minHeight: 34, alignment: .leading)
-    }
-
-    private func activityColor(for summary: ListenerActivitySummary) -> Color {
-        if case .ended = summary.recentChange?.kind, summary.connectionCount == 0 {
-            return PVPalette.neutral
-        }
-        return PVPalette.connected
-    }
-}
-
 private struct ProcessGroupDisclosureButton: View {
     let isExpanded: Bool
     let action: () -> Void
@@ -1497,7 +1413,7 @@ private struct ProcessGroupDisclosureButton: View {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
             }
-            .frame(width: 32, height: 32)
+            .frame(width: 16, height: 20)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1507,245 +1423,6 @@ private struct ProcessGroupDisclosureButton: View {
         .accessibilityLabel(L10n.string(isExpanded ? "收起进程列表" : "展开进程列表"))
         .accessibilityValue(L10n.string(isExpanded ? "已展开" : "已折叠"))
         .accessibilityHint("显示或隐藏组成此服务的具体进程")
-    }
-}
-
-private struct ActivitySummaryBadges: View {
-    let item: ReadablePortItem
-    let listenerProcessCount: Int
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if item.representative.isListening, item.localPorts.count > 1 {
-                ActivityMetricBadge(
-                    value: item.localPorts.count,
-                    symbol: "rectangle.stack.fill",
-                    color: PVPalette.waiting,
-                    accessibilityText: "\(item.localPorts.count) 个服务端口"
-                )
-            } else if item.isConnectionSummary, item.connectionCount > 1 {
-                ActivityMetricBadge(
-                    value: item.connectionCount,
-                    symbol: "link",
-                    color: PVPalette.connected,
-                    accessibilityText: "\(item.connectionCount) 条连接"
-                )
-                ActivityMetricBadge(
-                    value: item.remoteTargetCount,
-                    symbol: "network",
-                    color: PVPalette.connected,
-                    accessibilityText: "\(item.remoteTargetCount) 个连接目标"
-                )
-            } else if item.rawRecords.count > 1, item.processCount == 1 {
-                ActivityMetricBadge(
-                    value: item.rawRecords.count,
-                    symbol: "doc.on.doc",
-                    color: PVPalette.neutral,
-                    accessibilityText: "\(item.rawRecords.count) 条技术记录"
-                )
-            }
-
-            if listenerProcessCount > 1 {
-                ActivityMetricBadge(
-                    value: listenerProcessCount,
-                    symbol: "person.2.fill",
-                    color: PVPalette.neutral,
-                    accessibilityText: "共 \(listenerProcessCount) 个进程使用其中端口"
-                )
-            }
-        }
-    }
-}
-
-private struct ActivityMetricBadge: View {
-    let value: Int
-    let symbol: String
-    let color: Color
-    let accessibilityText: String
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: symbol)
-                .font(.system(size: 8, weight: .semibold))
-            Text(String(value))
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background(color.opacity(0.11), in: Capsule())
-        .help(accessibilityText)
-        .accessibilityLabel(accessibilityText)
-    }
-}
-
-private struct CompactPortClusterView: View {
-    let item: ReadablePortItem
-
-    private var color: Color {
-        if item.representative.isListening { return PVPalette.waiting }
-        if item.isConnectionSummary { return PVPalette.connected }
-        return PVPalette.neutral
-    }
-
-    private var symbol: String {
-        item.representative.isListening ? "rectangle.inset.filled.and.person.filled" : "point.3.connected.trianglepath.dotted"
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 3) {
-                ForEach(Array(item.localPorts.prefix(2)), id: \.self) { port in
-                    Text(":" + String(port))
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .lineLimit(1)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 3)
-                        .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-                }
-                if item.localPorts.count > 2 {
-                    Text("+\(item.localPorts.count - 2)")
-                        .font(.system(size: 9, weight: .semibold, design: .rounded))
-                        .foregroundStyle(color)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 3)
-                        .background(color.opacity(0.12), in: Capsule())
-                }
-                if item.localPorts.isEmpty {
-                    Text("*")
-                        .font(.system(.caption, design: .monospaced))
-                }
-            }
-            Label(item.localPortRoleText, systemImage: symbol)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .accessibilityElement(children: .ignore)
-    }
-}
-
-private struct CompactTopologyView: View {
-    let item: ReadablePortItem
-    let listenerProcessCount: Int
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if item.representative.isListening {
-                CompactTopologyNode(
-                    symbol: sourceSymbol,
-                    count: item.accessScope == .networkPossible ? 2 : 1,
-                    label: sourceLabel,
-                    color: sourceColor
-                )
-                CompactTopologyArrow(symbol: "arrow.right", color: sourceColor)
-                CompactTopologyNode(
-                    symbol: "rectangle.stack.fill",
-                    count: item.localPorts.count,
-                    label: item.localPorts.count > 1 ? "服务端口" : item.localPortText,
-                    color: PVPalette.waiting
-                )
-                if listenerProcessCount > 1 {
-                    CompactTopologyArrow(symbol: "arrow.right", color: PVPalette.neutral)
-                    CompactTopologyNode(
-                        symbol: "person.2.fill",
-                        count: listenerProcessCount,
-                        label: "进程共享",
-                        color: PVPalette.neutral
-                    )
-                }
-            } else {
-                CompactTopologyNode(
-                    symbol: "rectangle.connected.to.line.below",
-                    count: max(item.localPorts.count, 1),
-                    label: item.localPorts.count > 1 ? "本机端口" : item.localPortText,
-                    color: item.isConnectionSummary ? PVPalette.connected : PVPalette.neutral
-                )
-                CompactTopologyArrow(
-                    symbol: item.transport == .udp ? "arrow.left.and.right" : "arrow.left.arrow.right",
-                    color: item.isConnectionSummary ? PVPalette.connected : PVPalette.neutral
-                )
-                CompactTopologyNode(
-                    symbol: item.remoteTargetCount > 0 ? "network" : "questionmark",
-                    count: max(item.remoteTargetCount, 1),
-                    label: targetLabel,
-                    color: item.isConnectionSummary ? PVPalette.connected : PVPalette.neutral
-                )
-            }
-        }
-        .help(item.representative.isListening ? item.accessScope.explanation : item.textualRelationshipDescription)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(item.textualRelationshipDescription)
-    }
-
-    private var sourceSymbol: String {
-        switch item.accessScope {
-        case .localOnly: return "laptopcomputer"
-        case .networkPossible: return "network"
-        case .unknown: return "questionmark"
-        }
-    }
-
-    private var sourceLabel: String {
-        switch item.accessScope {
-        case .localOnly: return L10n.string("仅本机")
-        case .networkPossible: return L10n.string("本机/网络")
-        case .unknown: return L10n.string("来源未知")
-        }
-    }
-
-    private var sourceColor: Color { item.accessScope == .networkPossible ? PVPalette.warning : PVPalette.neutral }
-
-    private var targetLabel: String {
-        if item.remoteTargetCount > 1 { return L10n.format("%lld 个目标", item.remoteTargetCount) }
-        if let endpoint = item.remoteEndpoints.first { return endpoint }
-        return L10n.string("对象不固定")
-    }
-}
-
-private struct CompactTopologyNode: View {
-    let symbol: String
-    let count: Int
-    let label: String
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 5) {
-            ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(color.opacity(0.1))
-                    .frame(width: 28, height: 26)
-                Image(systemName: symbol)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(color)
-                    .frame(width: 28, height: 26)
-                if count > 1 {
-                    Text(String(count))
-                        .font(.system(size: 7, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(minWidth: 12, minHeight: 12)
-                        .background(color, in: Circle())
-                        .offset(x: 5, y: -5)
-                }
-            }
-            Text(L10n.string(label))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .frame(minWidth: 48, maxWidth: 100, alignment: .leading)
-    }
-}
-
-private struct CompactTopologyArrow: View {
-    let symbol: String
-    let color: Color
-
-    var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(color.opacity(0.75))
-            .accessibilityHidden(true)
     }
 }
 
@@ -1771,14 +1448,25 @@ private struct RecordDetailView: View {
                             endedBanner(for: item)
                         }
 
-                        Label("活动关系", systemImage: "point.3.connected.trianglepath.dotted")
-                            .font(.headline)
-                            .accessibilityAddTraits(.isHeader)
+                        HStack(spacing: 8) {
+                            ProcessIconView(record: item.representative, size: 22)
+                            Text(item.processName)
+                                .font(.headline)
+                            Text(item.localPorts.map(String.init).joined(separator: ", "))
+                                .font(.system(.callout, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                        }
 
+                        Text("连接流程")
+                            .font(.callout.weight(.semibold))
                         ConnectionDiagramView(
                             item: item,
                             relatedListenerItems: relatedListenerItems(for: item)
                         )
+                        Divider()
 
                         PortStatusOverview(
                             item: item,
@@ -1803,10 +1491,12 @@ private struct RecordDetailView: View {
                             onSelectItem: onSelectItem
                         )
 
+                        Divider()
                         actionSection(for: item)
                     }
-                    .padding(18)
+                    .padding(16)
                 }
+                .id(item.id)
             } else {
                 TeachingEmptyDetail()
             }
@@ -1893,7 +1583,7 @@ private struct RecordDetailView: View {
             impactDescription = L10n.string("结束的是整个进程；操作前会再次确认它仍在使用这个端口。")
         }
 
-        return HStack(alignment: .center, spacing: 14) {
+        return VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("操作影响")
                     .font(.callout.weight(.medium))
@@ -2153,58 +1843,37 @@ private struct PortStatusOverview: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: PVSpacing.three) {
+        VStack(alignment: .leading, spacing: 10) {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: PVSpacing.four) {
-                    PortBadge(item: item, color: statusColor)
-                    statusContent
+                HStack(spacing: 24) {
+                    statusHeading
+                    Spacer(minLength: 12)
+                    metricStrip
                 }
-
-                VStack(alignment: .leading, spacing: PVSpacing.three) {
-                    HStack(spacing: PVSpacing.three) {
-                        PortBadge(item: item, color: statusColor, compact: true)
-                        statusHeading
-                    }
+                VStack(alignment: .leading, spacing: 10) {
+                    statusHeading
                     metricStrip
                 }
             }
-
-            PortRangeScale(ports: item.localPorts, color: statusColor)
-
             if let recentChange = listenerActivity?.recentChange {
                 Label(recentChange.kind.shortDescription, systemImage: recentChangeSymbol(recentChange.kind))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(recentChangeColor(recentChange.kind))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(PVSpacing.four)
-        .premiumControlSurface(
-            radius: PVRadius.panel,
-            isSelected: !hasEnded,
-            accent: statusColor,
-            raised: true
-        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
-    }
-
-    private var statusContent: some View {
-        VStack(alignment: .leading, spacing: PVSpacing.three) {
-            statusHeading
-            metricStrip
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var statusHeading: some View {
         HStack(spacing: PVSpacing.two) {
             Image(systemName: statusSymbol)
-                .font(.system(size: 22, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(statusColor)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(statusTitle)
-                    .font(.title3.weight(.semibold))
+                    .font(.callout.weight(.medium))
                     .foregroundStyle(PVPalette.textPrimary)
                 Text(statusSubtitle)
                     .font(.caption)
@@ -2253,13 +1922,6 @@ private struct PortStatusOverview: View {
         }
     }
 
-    private func recentChangeColor(_ kind: PortActivityChangeKind) -> Color {
-        switch kind {
-        case .appeared, .changed: return PVPalette.connected
-        case .ended: return PVPalette.neutral
-        }
-    }
-
     private var accessibilityDescription: String {
         let ports = item.localPorts.isEmpty
             ? "端口未知"
@@ -2283,12 +1945,6 @@ private struct PortStatusMetric: View {
 
     var body: some View {
         HStack(spacing: PVSpacing.two) {
-            Image(systemName: metric.symbol)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(color)
-                .frame(width: 24, height: 24)
-                .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: PVRadius.small))
-
             VStack(alignment: .leading, spacing: 1) {
                 Text(L10n.string(metric.title))
                     .font(.caption2)
@@ -2300,105 +1956,6 @@ private struct PortStatusMetric: View {
             }
         }
         .frame(minWidth: 92, alignment: .leading)
-    }
-}
-
-private struct PortBadge: View {
-    let item: ReadablePortItem
-    let color: Color
-    var compact = false
-
-    private var width: CGFloat { compact ? 126 : 154 }
-    private var height: CGFloat { compact ? 72 : 104 }
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: compact ? PVRadius.node : PVRadius.floating, style: .continuous)
-                .fill(PVPalette.surfaceControl.opacity(0.72))
-                .overlay {
-                    RoundedRectangle(cornerRadius: compact ? PVRadius.node : PVRadius.floating, style: .continuous)
-                        .strokeBorder(PVPalette.edgeOuterStrong, lineWidth: 1)
-                }
-                .overlay(alignment: .leading) {
-                    Capsule()
-                        .fill(color)
-                        .frame(width: 3)
-                        .padding(.vertical, compact ? 10 : 14)
-                        .padding(.leading, 6)
-                }
-
-            VStack(spacing: compact ? 2 : 4) {
-                Label(item.localPorts.count > 1 ? "本机端口组" : "本机端口", systemImage: "rectangle.connected.to.line.below")
-                    .font(.system(size: compact ? 9 : 10, weight: .semibold))
-                    .foregroundStyle(PVPalette.textSecondary)
-
-                if item.localPorts.count == 1, let port = item.localPorts.first {
-                    Text(String(port))
-                        .font(.system(size: compact ? 22 : 30, weight: .bold, design: .rounded))
-                        .minimumScaleFactor(0.72)
-                } else {
-                    Text(String(item.localPorts.count))
-                        .font(.system(size: compact ? 22 : 30, weight: .bold, design: .rounded))
-                    Text("个端口")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(PVPalette.textSecondary)
-                }
-
-                if item.localPorts.count == 1 {
-                    Text(item.localPortRoleText)
-                        .font(.system(size: compact ? 8 : 9, weight: .medium))
-                        .foregroundStyle(PVPalette.textSecondary)
-                }
-            }
-            .foregroundStyle(PVPalette.textPrimary)
-            .padding(.horizontal, compact ? 12 : 16)
-        }
-        .frame(width: width, height: height)
-        .accessibilityHidden(true)
-    }
-}
-
-private struct PortRangeScale: View {
-    let ports: [Int]
-    let color: Color
-
-    var body: some View {
-        VStack(spacing: 4) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(PVPalette.edgeOuter)
-                        .frame(height: 3)
-
-                    ForEach(Array(ports.prefix(20)), id: \.self) { port in
-                        Circle()
-                            .fill(color)
-                            .frame(width: 8, height: 8)
-                            .overlay(Circle().stroke(PVPalette.surfaceRaised, lineWidth: 2))
-                            .shadow(color: color.opacity(0.28), radius: 3)
-                            .offset(x: markerOffset(for: port, width: proxy.size.width) - 4)
-                    }
-                }
-                .frame(height: 10)
-            }
-            .frame(height: 10)
-
-            HStack {
-                Text("0")
-                Spacer()
-                Text(ports.count > 1 ? "\(ports.count) 个本机端口" : "端口位置")
-                Spacer()
-                Text("65,535")
-            }
-            .font(.caption2.monospacedDigit())
-            .foregroundStyle(PVPalette.textTertiary)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func markerOffset(for port: Int, width: CGFloat) -> CGFloat {
-        let ratio = CGFloat(max(0, min(port, 65_535))) / 65_535
-        return max(4, min(width - 4, ratio * width))
     }
 }
 
@@ -2689,22 +2246,20 @@ private struct TechnicalDetailsView: View {
             Text(L10n.string(title))
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), alignment: .topLeading)], alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(fields) { field in
-                    VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .top, spacing: 12) {
                         Text(L10n.string(field.title))
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .frame(width: 90, alignment: .leading)
                         Text(L10n.string(field.value))
-                            .font(field.monospaced ? .system(.callout, design: .monospaced) : .callout)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
-                        Text(L10n.string(field.explanation))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(field.monospaced ? .system(.caption, design: .monospaced) : .caption)
                             .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .help(L10n.string(field.explanation))
                 }
             }
         }
@@ -2769,21 +2324,13 @@ private struct TeachingEmptyDetail: View {
     @State private var showsPortHelp = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "sidebar.right")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(PVPalette.accentPrimary)
-                .frame(width: 30, height: 30)
-                .background(PVPalette.accentPrimary.opacity(0.10), in: RoundedRectangle(cornerRadius: PVRadius.small))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("选择一项查看详情")
-                    .font(.callout.weight(.semibold))
-                Text("这里会解释应用、端口、连接关系和访问范围。")
-                    .font(.caption)
-                    .foregroundStyle(PVPalette.textSecondary)
-            }
-            Spacer(minLength: 12)
+        VStack(spacing: 12) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .font(.system(size: 26))
+                .foregroundStyle(.tertiary)
+            Text("选择一项查看详情")
+                .font(.callout)
+                .foregroundStyle(.secondary)
             Button("了解端口") {
                 showsPortHelp = true
             }

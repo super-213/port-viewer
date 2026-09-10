@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct TableGlassBackgroundBridge: NSViewRepresentable {
+struct NativeTableBackgroundBridge: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         scheduleUpdate(from: view)
@@ -19,10 +19,10 @@ struct TableGlassBackgroundBridge: NSViewRepresentable {
                 let tables = current.descendants(of: NSTableView.self)
                 if !tables.isEmpty {
                     for table in tables {
-                        table.backgroundColor = .clear
-                        table.usesAlternatingRowBackgroundColors = false
-                        table.enclosingScrollView?.drawsBackground = false
-                        table.enclosingScrollView?.backgroundColor = .clear
+                        table.backgroundColor = .textBackgroundColor
+                        table.usesAlternatingRowBackgroundColors = true
+                        table.enclosingScrollView?.drawsBackground = true
+                        table.enclosingScrollView?.backgroundColor = .textBackgroundColor
                         table.enclosingScrollView?.contentView.drawsBackground = false
                     }
                     return

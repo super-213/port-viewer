@@ -20,16 +20,12 @@ enum PVSpacing {
 }
 
 enum PVPalette {
-    static let canvasBase = dynamic(light: 0xF0F0F2, dark: 0x1E1E20)
-    static let canvasTop = dynamic(light: 0xF7F7F8, dark: 0x272729)
-    static let canvasBottom = dynamic(light: 0xE9E9EB, dark: 0x19191B)
-
-    static let surfaceGlass = dynamic(light: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.52, darkAlpha: 0.065)
-    static let surfaceContent = dynamic(light: 0xF8F8F9, dark: 0x222224, lightAlpha: 0.96, darkAlpha: 0.96)
-    static let surfaceControl = dynamic(light: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.58, darkAlpha: 0.065)
-    static let surfaceControlHover = dynamic(light: 0xFFFFFF, dark: 0xFFFFFF, lightAlpha: 0.86, darkAlpha: 0.11)
-    static let surfaceRaised = dynamic(light: 0xFFFFFF, dark: 0x303034, lightAlpha: 0.94, darkAlpha: 0.94)
-    static let surfaceBento = dynamic(light: 0xFAFAFB, dark: 0x29292C, lightAlpha: 0.92, darkAlpha: 0.92)
+    static let canvasBase = Color(nsColor: .windowBackgroundColor)
+    static let surfaceContent = Color(nsColor: .textBackgroundColor)
+    static let surfaceControl = Color(nsColor: .controlBackgroundColor)
+    static let surfaceControlHover = dynamic(light: 0xEAEAEA, dark: 0x3A3A3A)
+    static let surfaceRaised = Color(nsColor: .controlBackgroundColor)
+    static let surfaceBento = dynamic(light: 0xF5F5F5, dark: 0x282828)
 
     static let textPrimary = dynamic(light: 0x1C1C1E, dark: 0xF5F5F7)
     static let textSecondary = dynamic(light: 0x515156, dark: 0xC7C7CC)
@@ -44,9 +40,6 @@ enum PVPalette {
     static let accentIndigo = dynamic(light: 0x5856D6, dark: 0x5E5CE6)
     static let accentCyan = dynamic(light: 0x159FBE, dark: 0x50D2DF)
     static let accentPink = dynamic(light: 0xD856C7, dark: 0xF07ADE)
-    static let ambientBlue = dynamic(light: 0x5B9DFF, dark: 0x247BDE)
-    static let ambientIndigo = dynamic(light: 0x9B8CFF, dark: 0x6756C7)
-    static let ambientMint = dynamic(light: 0x83D8CE, dark: 0x2E8D88)
     static let waiting = dynamic(light: 0x239B62, dark: 0x45D087)
     static let connected = dynamic(light: 0x1677E8, dark: 0x62AAFF)
     static let warning = dynamic(light: 0xC87512, dark: 0xFFB14A)
