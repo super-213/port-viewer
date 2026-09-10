@@ -72,19 +72,28 @@ struct TerminationPrompt: Identifiable, Equatable {
     let otherOccupants: [String]
     let isCritical: Bool
 
+    var service: ManagedService? { record.context.managedService }
+
     var id: String { "\(record.id)|\(stage)" }
 
     var title: String {
-        stage == .standard
+        if let service { return L10n.format("停止 %@？", service.name) }
+        return stage == .standard
             ? L10n.format("结束 %@？", record.processName)
             : L10n.format("强制结束 %@？", record.processName)
     }
 
     var actionTitle: String {
-        L10n.string(stage == .standard ? "结束进程" : "强制结束")
+        if let service { return L10n.string(service.kind == .docker ? "停止容器" : "停止服务") }
+        return L10n.string(stage == .standard ? "结束进程" : "强制结束")
     }
 
     var message: String {
+        if let service {
+            return service.kind == .docker
+                ? L10n.format("将停止 Docker 容器 %@，该容器的全部发布端口和运行任务都会停止。先请求正常退出，10 秒后 Docker 可能强制停止容器。", service.name)
+                : L10n.format("将通过 Homebrew 停止 %@ 及其子进程，并取消该服务的登录时自动启动。该服务的全部端口都会关闭。", service.name)
+        }
         var lines = [
             L10n.format("PID %d · %@ 端口 %@", record.pid, record.transport.rawValue, record.localPortText),
             L10n.string("结束的是整个进程，而不只是这个端口。")
@@ -117,6 +126,7 @@ final class PortViewModel {
     private(set) var lastSuccessfulUpdate: Date?
     private(set) var lastQueryDuration: TimeInterval?
     private(set) var isRefreshing = false
+    private(set) var isPerformingOperation = false
     private(set) var isPaused = false
     private(set) var recentListenerActivity: [ListenerActivityKey: RecentPortActivityChange] = [:]
     private(set) var activityHistory: [ActivityHistoryPoint] = []
@@ -130,6 +140,7 @@ final class PortViewModel {
 
     @ObservationIgnored private let queryService: any PortQuerying
     @ObservationIgnored private let processService: any ProcessControlling
+    @ObservationIgnored private let serviceContexts: (any ServiceContextProviding)?
     @ObservationIgnored private var refreshLoop: Task<Void, Never>?
     @ObservationIgnored private var manualRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var terminationTask: Task<Void, Never>?
@@ -153,10 +164,12 @@ final class PortViewModel {
 
     init(
         queryService: any PortQuerying,
-        processService: any ProcessControlling
+        processService: any ProcessControlling,
+        serviceContexts: (any ServiceContextProviding)? = nil
     ) {
         self.queryService = queryService
         self.processService = processService
+        self.serviceContexts = serviceContexts
     }
 
     deinit {
@@ -273,6 +286,7 @@ final class PortViewModel {
     }
 
     func prepareToTerminate(_ staleRecord: PortRecord) {
+        guard !isPerformingOperation else { return }
         terminationTask?.cancel()
         terminationTask = Task { [weak self] in
             await self?.performPreparation(for: staleRecord)
@@ -280,6 +294,7 @@ final class PortViewModel {
     }
 
     func confirmTermination(_ prompt: TerminationPrompt) {
+        guard !isPerformingOperation else { return }
         terminationTask?.cancel()
         terminationTask = Task { [weak self] in
             await self?.performTermination(prompt)
@@ -305,6 +320,9 @@ final class PortViewModel {
     #endif
 
     private func performPreparation(for staleRecord: PortRecord) async {
+        isPerformingOperation = true
+        terminationPrompt = nil
+        defer { isPerformingOperation = false }
         guard staleRecord.belongsToCurrentUser else {
             feedback = OperationFeedback(
                 kind: .error,
@@ -336,6 +354,14 @@ final class PortViewModel {
                 return
             }
 
+            guard liveRecord.context.identity != nil else { throw ProcessSignalError.identityUnavailable }
+            try Task.checkCancellation()
+            if let service = staleRecord.context.managedService,
+               liveRecord.context.managedService != service { throw ManagedServiceError.changed }
+            if liveRecord.context.managedService == nil, ProcessProtectionPolicy.isSharedServiceHost(liveRecord) {
+                throw ProcessSignalError.permissionDenied
+            }
+
             let otherCount = snapshot.records.filter {
                 $0.pid == liveRecord.pid && $0.id != liveRecord.id
             }.count
@@ -357,7 +383,14 @@ final class PortViewModel {
     }
 
     private func performTermination(_ prompt: TerminationPrompt) async {
+        isPerformingOperation = true
+        defer { isPerformingOperation = false }
         terminationPrompt = nil
+
+        if let service = prompt.service {
+            await performServiceStop(service, prompt: prompt)
+            return
+        }
 
         let force = prompt.stage == .force
         if force && prompt.isCritical {
@@ -366,7 +399,20 @@ final class PortViewModel {
         }
 
         do {
-            try processService.send(signal: force ? SIGKILL : SIGTERM, to: prompt.record.pid)
+            let snapshot = try await queryService.query(policy: .fresh)
+            try Task.checkCancellation()
+            _ = apply(snapshot)
+            guard !snapshot.isPartial else { throw ProcessSignalError.identityUnavailable }
+            guard let expected = prompt.record.context.identity,
+                  let live = snapshot.records.first(where: { $0.matchesTarget(prompt.record) }),
+                  live.context.identity == expected else { throw ProcessSignalError.identityChanged }
+            guard live.belongsToCurrentUser, live.context.managedService == nil,
+                  !ProcessProtectionPolicy.isSharedServiceHost(live),
+                  !(force && ProcessProtectionPolicy.isCritical(live)) else { throw ProcessSignalError.permissionDenied }
+            try Task.checkCancellation()
+            try processService.send(signal: force ? SIGKILL : SIGTERM, to: prompt.record.pid, expectedIdentity: expected)
+        } catch is CancellationError {
+            return
         } catch {
             feedback = OperationFeedback(kind: .error, message: error.localizedDescription)
             return
@@ -414,6 +460,41 @@ final class PortViewModel {
             feedback = OperationFeedback(kind: .warning, message: L10n.string("进程结束操作已取消，暂时无法验证端口状态。"))
         } catch {
             feedback = OperationFeedback(kind: .warning, message: L10n.format("信号已发送，但无法验证端口状态：%@", error.localizedDescription))
+        }
+    }
+
+    private func performServiceStop(_ service: ManagedService, prompt: TerminationPrompt) async {
+        do {
+            guard let serviceContexts else { throw ManagedServiceError.changed }
+            let snapshot = try await queryService.query(policy: .fresh)
+            try Task.checkCancellation()
+            _ = apply(snapshot)
+            guard !snapshot.isPartial,
+                  let live = snapshot.records.first(where: { $0.matchesTarget(prompt.record) }),
+                  live.context.identity != nil, live.context.managedService == service else {
+                throw ManagedServiceError.changed
+            }
+            try await serviceContexts.stop(service, for: live)
+        } catch is CancellationError {
+            feedback = OperationFeedback(kind: .warning, message: L10n.string("服务操作已取消，请刷新确认当前状态。"))
+            return
+        } catch {
+            feedback = OperationFeedback(kind: .error, message: error.localizedDescription)
+            return
+        }
+        do {
+            let snapshot = try await queryService.query(policy: .fresh)
+            _ = apply(snapshot)
+            let occupied = snapshot.records.contains { $0.matchesPort(prompt.record) }
+            feedback = OperationFeedback(
+                kind: snapshot.isPartial || occupied ? .warning : .success,
+                message: snapshot.isPartial
+                    ? L10n.string("服务已停止，但端口查询不完整，请刷新确认。")
+                    : occupied ? L10n.string("服务已停止，但该端口仍有占用，请查看最新记录。")
+                    : L10n.format("%@ 已停止，所选端口已释放。", service.name)
+            )
+        } catch {
+            feedback = OperationFeedback(kind: .warning, message: L10n.string("服务已停止，但无法验证端口状态，请刷新确认。"))
         }
     }
 
@@ -694,10 +775,13 @@ private extension PortRecord {
             && state == other.state
             && executablePath == other.executablePath
             && parentPID == other.parentPID
+            && context == other.context
     }
 
     func matchesTarget(_ other: PortRecord) -> Bool {
         pid == other.pid
+            && context.identity == other.context.identity
+            && user == other.user
             && processName == other.processName
             && transport == other.transport
             && localAddress == other.localAddress

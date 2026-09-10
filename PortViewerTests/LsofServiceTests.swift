@@ -201,7 +201,8 @@ final class LsofServiceTests: XCTestCase {
         let service = ProcessService()
         XCTAssertTrue(service.exists(pid: ProcessInfo.processInfo.processIdentifier))
 
-        XCTAssertThrowsError(try service.send(signal: 0, to: Int32.max)) { error in
+        let identity = ProcessIdentity(pid: Int32.max, userID: getuid(), startSeconds: 0, startMicroseconds: 0)
+        XCTAssertThrowsError(try service.send(signal: 0, to: Int32.max, expectedIdentity: identity)) { error in
             XCTAssertEqual(error as? ProcessSignalError, .processMissing)
         }
     }

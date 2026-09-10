@@ -297,6 +297,7 @@ final class PortViewModelTests: XCTestCase {
         let target = PortTestFixtures.record()
         let query = StubPortQueryService(responses: [
             .snapshot(PortTestFixtures.snapshot(records: [target])),
+            .snapshot(PortTestFixtures.snapshot(records: [target])),
             .snapshot(PortTestFixtures.snapshot(records: []))
         ])
         let viewModel = PortTestFixtures.viewModel(queryService: query)
@@ -310,12 +311,13 @@ final class PortViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.feedback?.kind, .success)
         XCTAssertEqual(viewModel.feedback?.message, L10n.format("%@ 端口 %@ 已释放。", "TCP", "3000"))
         let policies = await query.policies()
-        XCTAssertEqual(policies, [.fresh, .fresh])
+        XCTAssertEqual(policies, [.fresh, .fresh, .fresh])
     }
 
     func testSignalErrorStopsBeforePostSignalQuery() async throws {
         let target = PortTestFixtures.record()
         let query = StubPortQueryService(responses: [
+            .snapshot(PortTestFixtures.snapshot(records: [target])),
             .snapshot(PortTestFixtures.snapshot(records: [target]))
         ])
         let viewModel = PortTestFixtures.viewModel(
@@ -332,12 +334,14 @@ final class PortViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.feedback?.kind, .error)
         XCTAssertEqual(viewModel.feedback?.message, L10n.string("权限不足，无法结束该进程。当前版本不申请管理员权限。"))
         let policies = await query.policies()
-        XCTAssertEqual(policies, [.fresh])
+        XCTAssertEqual(policies, [.fresh, .fresh])
     }
 
     func testSIGTERMPersistsThenOffersForceAndPostSignalQueryFailureNeverReportsSuccess() async throws {
         let target = PortTestFixtures.record()
         let query = StubPortQueryService(responses: [
+            .snapshot(PortTestFixtures.snapshot(records: [target])),
+            .snapshot(PortTestFixtures.snapshot(records: [target])),
             .snapshot(PortTestFixtures.snapshot(records: [target])),
             .snapshot(PortTestFixtures.snapshot(records: [target])),
             .failure(.executionFailed(3))
@@ -362,7 +366,7 @@ final class PortViewModelTests: XCTestCase {
             L10n.format("信号已发送，但无法验证端口状态：%@", LsofQueryError.executionFailed(3).localizedDescription)
         )
         let policies = await query.policies()
-        XCTAssertEqual(policies, [.fresh, .fresh, .fresh])
+        XCTAssertEqual(policies, [.fresh, .fresh, .fresh, .fresh, .fresh])
     }
 
     func testCriticalProcessCannotBeForceTerminated() async {

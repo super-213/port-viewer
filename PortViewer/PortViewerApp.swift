@@ -32,9 +32,11 @@ struct PortViewerApp: App {
     @State private var networkScanViewModel: NetworkScanViewModel
 
     init() {
+        let serviceContexts = ManagedServiceController()
         let portViewModel = PortViewModel(
-            queryService: LsofService(),
-            processService: ProcessService()
+            queryService: LsofService(serviceContexts: serviceContexts),
+            processService: ProcessService(),
+            serviceContexts: serviceContexts
         )
         _portViewModel = State(initialValue: portViewModel)
         _mainWindowViewModel = State(

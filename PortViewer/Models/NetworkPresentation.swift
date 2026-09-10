@@ -389,7 +389,7 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     }
 
     var representative: PortRecord { rawRecords[0] }
-    var processName: String { representative.processName }
+    var processName: String { representative.displayName }
     var pid: Int32 { representative.pid }
     var transport: TransportProtocol { representative.transport }
     var localPort: Int? { representative.localPort }
@@ -659,7 +659,9 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
             return GroupKey(
                 pid: summarizesListeners ? nil : record.pid,
                 processIdentity: summarizesListeners
-                    ? [record.processName, record.user, record.executablePath ?? ""].joined(separator: "|")
+                    ? [record.processName, record.user, record.executablePath ?? "",
+                       record.context.projectRoot ?? record.context.workingDirectory ?? "",
+                       record.context.framework ?? "", record.context.managedService?.id ?? ""].joined(separator: "|")
                     : "",
                 transport: record.transport,
                 port: summarizesConnections || summarizesListeners ? nil : record.localPort,

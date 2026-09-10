@@ -26,6 +26,22 @@ struct PortRecord: Identifiable, Hashable, Sendable {
     let executablePath: String?
     let parentPID: Int32?
     let updatedAt: Date
+    var context = ProcessContext()
+
+    var displayName: String {
+        let parts = [context.managedService?.name ?? context.projectName, context.framework]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+        if parts.count == 2, parts[0].localizedCaseInsensitiveCompare(parts[1]) == .orderedSame {
+            return parts[1]
+        }
+        return parts.isEmpty ? processName : parts.joined(separator: " · ")
+    }
+
+    func withContext(_ context: ProcessContext) -> PortRecord {
+        var copy = self
+        copy.context = context
+        return copy
+    }
 
     var id: String {
         [
@@ -79,7 +95,8 @@ struct PortRecord: Identifiable, Hashable, Sendable {
             state: state,
             executablePath: path,
             parentPID: parentPID,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            context: context
         )
     }
 
@@ -133,6 +150,8 @@ struct PortSearch {
             return nil
         }
 
-        return record.processName.localizedCaseInsensitiveContains(value) ? 0 : nil
+        return [record.processName, record.displayName, record.context.projectRoot ?? "",
+                record.context.workingDirectory ?? "", record.context.managedService?.kind.rawValue ?? ""]
+            .contains { $0.localizedCaseInsensitiveContains(value) } ? 0 : nil
     }
 }

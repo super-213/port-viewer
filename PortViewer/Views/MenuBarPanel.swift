@@ -238,9 +238,10 @@ private struct MenuBarRecordButton: View {
                     .padding(.vertical, 3)
                     .background(PVPalette.waiting.opacity(0.09), in: RoundedRectangle(cornerRadius: PVRadius.micro))
                 ProcessIconView(record: record, size: 18)
-                Text(record.processName)
+                Text(record.displayName)
                     .foregroundStyle(PVPalette.textPrimary)
                     .lineLimit(1)
+                    .help(record.displayName)
                 Spacer()
                 Label("等待连接", systemImage: "circle.fill")
                     .font(.caption)
@@ -261,7 +262,7 @@ private struct MenuBarRecordButton: View {
         .accessibilityLabel(L10n.format(
             "端口 %@，%@，正在等待连接",
             record.localPortText,
-            record.processName
+            record.displayName
         ))
     }
 }

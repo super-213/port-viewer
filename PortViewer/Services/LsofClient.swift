@@ -100,7 +100,7 @@ private final class LimitedOutputBuffer: @unchecked Sendable {
     }
 }
 
-private actor LsofProcessSession {
+actor LsofProcessSession {
     private enum StopReason: Sendable {
         case timedOut
         case cancelled
@@ -123,10 +123,14 @@ private actor LsofProcessSession {
     private var timeoutTask: Task<Void, Never>?
     private var stopEscalationTask: Task<Void, Never>?
 
-    init(executableURL: URL, outputByteLimit: Int) {
+    init(executableURL: URL, outputByteLimit: Int,
+         arguments: [String] = ["-nP", "-iTCP", "-iUDP", "-F0pcuLRftnPT"],
+         environment: [String: String]? = nil) {
         outputBuffer = LimitedOutputBuffer(byteLimit: outputByteLimit)
         process.executableURL = executableURL
-        process.arguments = ["-nP", "-iTCP", "-iUDP", "-F0pcuLRftnPT"]
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
         process.standardOutput = standardOutput
         process.standardError = FileHandle.nullDevice
     }
@@ -301,6 +305,7 @@ actor LsofService: PortQuerying {
     private let timeout: Duration
     private let runner: any LsofRunning
     private let metadataCache: ProcessMetadataCache
+    private let serviceContexts: (any ServiceContextProviding)?
     private var nextQueryID: UInt64 = 0
     private var inFlight: InFlightQuery?
 
@@ -309,13 +314,15 @@ actor LsofService: PortQuerying {
         executableURL: URL = URL(fileURLWithPath: "/usr/sbin/lsof"),
         timeout: Duration = .seconds(5),
         runner: any LsofRunning = LsofProcessRunner(),
-        metadataCache: ProcessMetadataCache = ProcessMetadataCache()
+        metadataCache: ProcessMetadataCache = ProcessMetadataCache(),
+        serviceContexts: (any ServiceContextProviding)? = nil
     ) {
         self.parser = parser
         self.executableURL = executableURL
         self.timeout = timeout
         self.runner = runner
         self.metadataCache = metadataCache
+        self.serviceContexts = serviceContexts
     }
 
     func query(policy: PortQueryPolicy = .reuseInFlight) async throws -> PortSnapshot {
@@ -351,6 +358,7 @@ actor LsofService: PortQuerying {
         let timeout = timeout
         let runner = runner
         let metadataCache = metadataCache
+        let serviceContexts = serviceContexts
 
         let task = Task.detached(priority: .utility) {
             try Task.checkCancellation()
@@ -379,11 +387,14 @@ actor LsofService: PortQuerying {
                 throw LsofQueryError.unparseableOutput
             }
 
-            let paths = await metadataCache.executablePaths(
+            var enrichedRecords = await metadataCache.enrich(
                 for: records,
                 forceRefresh: forceMetadataRefresh
             )
-            let enrichedRecords = records.map { $0.withExecutablePath(paths[$0.pid]) }
+            if let serviceContexts {
+                enrichedRecords = await serviceContexts.enrich(enrichedRecords, forceRefresh: forceMetadataRefresh)
+            }
+            try Task.checkCancellation()
 
             return PortSnapshot(
                 records: enrichedRecords,
@@ -413,13 +424,9 @@ actor LsofService: PortQuerying {
 }
 
 actor ProcessMetadataCache {
-    private struct ProcessIdentity: Hashable {
-        let pid: Int32
-        let command: String
-    }
-
     private struct Entry {
         let path: String?
+        let context: ProcessContext
         let resolvedAt: Date
     }
 
@@ -430,39 +437,37 @@ actor ProcessMetadataCache {
         self.timeToLive = timeToLive
     }
 
-    func executablePaths(
+    func enrich(
         for records: [PortRecord],
         forceRefresh: Bool,
         now: Date = Date()
-    ) -> [Int32: String] {
-        var commandsByPID: [Int32: String] = [:]
-        for record in records {
-            commandsByPID[record.pid] = record.processName
-        }
-
-        let activeIdentities = Set(commandsByPID.map {
-            ProcessIdentity(pid: $0.key, command: $0.value)
-        })
-        entries = entries.filter { activeIdentities.contains($0.key) }
-
-        var result: [Int32: String] = [:]
-        result.reserveCapacity(commandsByPID.count)
-        for (pid, command) in commandsByPID {
-            let identity = ProcessIdentity(pid: pid, command: command)
-            let path: String?
+    ) -> [PortRecord] {
+        var resolved: [Int32: Entry] = [:]
+        var activeIdentities: Set<ProcessIdentity> = []
+        var attempted: Set<Int32> = []
+        for record in records where attempted.insert(record.pid).inserted {
+            let pid = record.pid
+            guard let identity = ProcessMetadataResolver.identity(for: pid) else { continue }
+            activeIdentities.insert(identity)
+            let entry: Entry
             if !forceRefresh,
                let cached = entries[identity],
                now.timeIntervalSince(cached.resolvedAt) < timeToLive {
-                path = cached.path
+                entry = cached
             } else {
-                path = ProcessMetadataResolver.executablePath(for: pid)
-                entries[identity] = Entry(path: path, resolvedAt: now)
+                let path = ProcessMetadataResolver.executablePath(for: pid)
+                let context = ProcessMetadataResolver.context(for: identity, processName: record.processName)
+                guard ProcessMetadataResolver.identity(for: pid) == identity else { continue }
+                entry = Entry(path: path, context: context, resolvedAt: now)
+                entries[identity] = entry
             }
-            if let path {
-                result[pid] = path
-            }
+            resolved[pid] = entry
         }
-        return result
+        entries = entries.filter { activeIdentities.contains($0.key) }
+        return records.map { record in
+            guard let entry = resolved[record.pid] else { return record }
+            return record.withExecutablePath(entry.path).withContext(entry.context)
+        }
     }
 }
 
@@ -472,7 +477,7 @@ enum ProcessMetadataResolver {
         var buffer = [CChar](repeating: 0, count: 4_096)
         let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
         guard length > 0 else { return nil }
-        return String(cString: buffer)
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 }
 

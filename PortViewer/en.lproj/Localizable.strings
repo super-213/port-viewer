@@ -473,3 +473,39 @@
 
 "连接流程" = "Connection Flow";
 "页面" = "Page";
+
+/* Project and service context */
+"进程身份已变化，已取消操作。请刷新后重新选择。" = "The process identity changed. The operation was cancelled. Refresh and select it again.";
+"无法读取进程启动时间，无法安全结束该进程。" = "The process start time is unavailable, so it cannot be stopped safely.";
+"停止容器…" = "Stop Container…";
+"停止 Homebrew 服务…" = "Stop Homebrew Service…";
+"停止 %@？" = "Stop %@?";
+"停止容器" = "Stop Container";
+"停止服务" = "Stop Service";
+"将停止 Docker 容器 %@，该容器的全部发布端口和运行任务都会停止。先请求正常退出，10 秒后 Docker 可能强制停止容器。" = "Stop Docker container %@, including all its published ports and running tasks. Docker requests a graceful exit and may force-stop it after 10 seconds.";
+"将通过 Homebrew 停止 %@ 及其子进程，并取消该服务的登录时自动启动。该服务的全部端口都会关闭。" = "Homebrew will stop %@ and its child processes and disable its launch at login. All ports belonging to this service will close.";
+"服务归属或启动身份已变化，已取消停止操作。请刷新后重试。" = "The service ownership or start identity changed. The stop was cancelled. Refresh and try again.";
+"服务管理命令失败。请检查 Docker 或 Homebrew 的运行状态并刷新确认。" = "The service management command failed. Check Docker or Homebrew and refresh to confirm the current state.";
+"停止命令已执行，但服务仍在运行。请刷新后检查。" = "The stop command completed, but the service is still running. Refresh and check its state.";
+"服务操作已取消，请刷新确认当前状态。" = "The service operation was cancelled. Refresh to confirm its current state.";
+"服务已停止，但端口查询不完整，请刷新确认。" = "The service stopped, but the port query is incomplete. Refresh to confirm.";
+"服务已停止，但该端口仍有占用，请查看最新记录。" = "The service stopped, but the port is still occupied. Check the latest records.";
+"%@ 已停止，所选端口已释放。" = "%@ stopped and the selected port is now free.";
+"服务已停止，但无法验证端口状态，请刷新确认。" = "The service stopped, but its port state could not be verified. Refresh to confirm.";
+"停止整个容器及其全部发布端口；不会结束 Docker 共享后台进程。" = "Stops the whole container and all its published ports. The shared Docker backend keeps running.";
+"通过 Homebrew 停止整个服务，并取消登录时自动启动。" = "Stops the whole service through Homebrew and disables its launch at login.";
+"未确认容器归属，不能结束共享后台进程。请确认 Docker 正在运行后刷新。" = "Container ownership could not be confirmed. The shared backend cannot be stopped. Check Docker and refresh.";
+"所属项目" = "Project";
+"根据工作目录中的项目清单识别" = "Identified from project manifests in the working directory";
+"项目目录" = "Project Directory";
+"最近的项目清单或 Git 根目录" = "The nearest project manifest or Git root directory";
+"工作目录" = "Working Directory";
+"该进程当前所在的目录" = "The current directory of this process";
+"服务类型" = "Service Type";
+"根据启动参数或程序名识别，不按端口猜测" = "Identified from launch arguments or the executable name, not guessed from the port";
+"启动参数" = "Launch Arguments";
+"仅显示进程参数；常见密钥参数已隐藏，不展示或保存环境变量" = "Process arguments only. Common credential flags are redacted; environment variables are not displayed or stored.";
+"启动时间" = "Start Time";
+"操作前结合 PID 核对进程身份" = "Checked together with the PID before an operation";
+"服务管理" = "Service Manager";
+"通过对应管理器停止整个服务" = "Stops the whole service using its manager";

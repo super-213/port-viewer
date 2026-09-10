@@ -1217,7 +1217,7 @@ private struct PortTable: View {
                     ProcessIconView(record: item.representative, size: 18)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 5) {
-                            Text(item.processName).lineLimit(1)
+                            Text(item.processName).lineLimit(1).help(item.processName)
                             if item.processCount > 1 {
                                 Text("(\(item.processCount))")
                                     .foregroundStyle(.secondary)
@@ -1567,9 +1567,16 @@ private struct RecordDetailView: View {
         let processRecords = item.processSummaries.compactMap { process in
             item.rawRecords.first { $0.pid == process.pid }
         }
-        let isAllowed = processRecords.allSatisfy(\.belongsToCurrentUser) && !hasEnded
+        let isAllowed = processRecords.allSatisfy {
+            $0.belongsToCurrentUser && $0.context.identity != nil
+                && ($0.context.managedService != nil || !ProcessProtectionPolicy.isSharedServiceHost($0))
+        } && !hasEnded
         let impactDescription: String
-        if item.processCount > 1 {
+        if let service = record.context.managedService {
+            impactDescription = service.kind == .docker
+                ? L10n.string("停止整个容器及其全部发布端口；不会结束 Docker 共享后台进程。")
+                : L10n.string("通过 Homebrew 停止整个服务，并取消登录时自动启动。")
+        } else if item.processCount > 1 {
             impactDescription = L10n.format(
                 "此服务由 %lld 个进程共同提供；结束前需要选择具体进程，其他进程不会同时结束。",
                 item.processCount
@@ -1592,7 +1599,7 @@ private struct RecordDetailView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if item.processCount > 1 {
+            if item.processCount > 1 && record.context.managedService == nil {
                 Menu(L10n.string("选择进程结束…")) {
                     ForEach(processRecords) { processRecord in
                         Button(role: .destructive) {
@@ -1603,15 +1610,15 @@ private struct RecordDetailView: View {
                     }
                 }
                 .buttonStyle(DangerButtonStyle())
-                .disabled(portViewModel.isRefreshing || !isAllowed)
+                .disabled(portViewModel.isRefreshing || portViewModel.isPerformingOperation || !isAllowed)
                 .help(L10n.string("选择要结束的具体进程；操作前仍会重新校验"))
                 .accessibilityHint(L10n.string("展开组成此服务的进程列表"))
             } else {
-                Button("结束进程…", role: .destructive) {
+                Button(record.context.managedService?.stopTitle ?? L10n.string("结束进程…"), role: .destructive) {
                     portViewModel.prepareToTerminate(record)
                 }
                 .buttonStyle(DangerButtonStyle())
-                .disabled(portViewModel.isRefreshing || !isAllowed)
+                .disabled(portViewModel.isRefreshing || portViewModel.isPerformingOperation || !isAllowed)
                 .help(terminationHelp(for: record))
                 .accessibilityHint(terminationHelp(for: record))
             }
@@ -1622,6 +1629,10 @@ private struct RecordDetailView: View {
     private func terminationHelp(for record: PortRecord) -> String {
         if hasEnded { return L10n.string("这项活动已经结束") }
         if !record.belongsToCurrentUser { return L10n.string("该进程属于其他用户，当前版本不会申请管理员权限") }
+        if record.context.identity == nil { return L10n.string("无法读取进程启动时间，无法安全结束该进程。") }
+        if record.context.managedService == nil, ProcessProtectionPolicy.isSharedServiceHost(record) {
+            return L10n.string("未确认容器归属，不能结束共享后台进程。请确认 Docker 正在运行后刷新。")
+        }
         return L10n.string("操作前会重新校验进程和端口，并显示确认对话框")
     }
 }
@@ -2185,6 +2196,30 @@ private struct TechnicalDetailsView: View {
             .init(title: "启动来源", value: parentProcessDescription, explanation: "启动当前进程的上一级进程", monospaced: false),
             .init(title: "程序位置", value: record.executablePath ?? "无法获取", explanation: "当前进程对应程序文件在磁盘上的位置", monospaced: false)
         ]
+        if let project = record.context.projectName {
+            fields.append(.init(title: "所属项目", value: project, explanation: "根据工作目录中的项目清单识别", monospaced: false))
+        }
+        if let root = record.context.projectRoot {
+            fields.append(.init(title: "项目目录", value: root, explanation: "最近的项目清单或 Git 根目录", monospaced: false))
+        }
+        if let directory = record.context.workingDirectory {
+            fields.append(.init(title: "工作目录", value: directory, explanation: "该进程当前所在的目录", monospaced: false))
+        }
+        if let framework = record.context.framework {
+            fields.append(.init(title: "服务类型", value: framework, explanation: "根据启动参数或程序名识别，不按端口猜测", monospaced: false))
+        }
+        if !record.context.arguments.isEmpty {
+            fields.append(.init(title: "启动参数", value: record.context.arguments.joined(separator: " "),
+                                explanation: "仅显示进程参数；常见密钥参数已隐藏，不展示或保存环境变量", monospaced: false))
+        }
+        if let identity = record.context.identity {
+            fields.append(.init(title: "启动时间", value: Date(timeIntervalSince1970: Double(identity.startSeconds)).formatted(),
+                                explanation: "操作前结合 PID 核对进程身份", monospaced: false))
+        }
+        if let service = record.context.managedService {
+            fields.append(.init(title: "服务管理", value: service.kind.rawValue + " · " + service.name,
+                                explanation: "通过对应管理器停止整个服务", monospaced: false))
+        }
         if item.processCount > 1 {
             fields.insert(
                 .init(title: "组成进程", value: "\(item.processCount) 个", explanation: "这些进程使用了同一组服务端口", monospaced: false),

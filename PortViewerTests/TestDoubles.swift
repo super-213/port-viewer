@@ -49,7 +49,7 @@ struct StubProcessService: ProcessControlling {
     var processExists = false
     var signalError: ProcessSignalError?
 
-    func send(signal: Int32, to pid: Int32) throws {
+    func send(signal: Int32, to pid: Int32, expectedIdentity: ProcessIdentity) throws {
         if let signalError { throw signalError }
     }
 
@@ -88,7 +88,8 @@ enum PortTestFixtures {
             state: state,
             executablePath: executablePath,
             parentPID: nil,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            context: ProcessContext(identity: ProcessIdentity(pid: pid, userID: getuid(), startSeconds: 100, startMicroseconds: 1))
         )
     }
 
