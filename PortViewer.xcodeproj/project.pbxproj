@@ -246,13 +246,13 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Port Viewer";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Port Viewer 需要访问本地网络，以探测你指定设备的 TCP 端口。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Port Viewer 需要访问本地网络，以探测你指定设备的 TCP 端口。";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.2;
+				MARKETING_VERSION = 0.1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.portviewer.app;
 				PRODUCT_MODULE_NAME = PortViewer;
 				PRODUCT_NAME = "Port Viewer";
@@ -272,13 +272,13 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Port Viewer";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Port Viewer 需要访问本地网络，以探测你指定设备的 TCP 端口。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Port Viewer 需要访问本地网络，以探测你指定设备的 TCP 端口。";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.2;
+				MARKETING_VERSION = 0.1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.portviewer.app;
 				PRODUCT_MODULE_NAME = PortViewer;
 				PRODUCT_NAME = "Port Viewer";

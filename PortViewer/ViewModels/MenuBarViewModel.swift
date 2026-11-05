@@ -12,6 +12,7 @@ final class MenuBarViewModel {
     @ObservationIgnored private var cachedRecords: [PortRecord] = []
     @ObservationIgnored private var cachedListeningRecords: [PortRecord] = []
     @ObservationIgnored private var cachedDisplayedRecords: [PortRecord]?
+    @ObservationIgnored private var cachedTunnelRevision = -1
     private let maximumRecordCount = 10
 
     init(portViewModel: PortViewModel) {
@@ -19,6 +20,11 @@ final class MenuBarViewModel {
     }
 
     var displayedRecords: [PortRecord] {
+        let revision = portViewModel.tunnelRevision
+        if cachedTunnelRevision != revision {
+            cachedTunnelRevision = revision
+            cachedDisplayedRecords = nil
+        }
         let records = portViewModel.records
         if records != cachedRecords {
             cachedRecords = records
@@ -40,7 +46,7 @@ final class MenuBarViewModel {
             return displayed
         }
         displayed = Array(cachedListeningRecords.lazy.filter {
-            PortSearch.rank(of: $0, query: query) != nil
+            PortSearch.rank(of: $0, query: query) != nil || self.portViewModel.matchesTunnelSearch($0, query: query)
         }.prefix(maximumRecordCount))
         cachedDisplayedRecords = displayed
         return displayed

@@ -36,7 +36,8 @@ struct PortViewerApp: App {
         let portViewModel = PortViewModel(
             queryService: PortQueryService(serviceContexts: serviceContexts),
             processService: ProcessService(),
-            serviceContexts: serviceContexts
+            serviceContexts: serviceContexts,
+            tunnelService: CloudflareTunnelService()
         )
         _portViewModel = State(initialValue: portViewModel)
         _mainWindowViewModel = State(
@@ -91,7 +92,7 @@ struct PortViewerApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView()
+            SettingsView(portViewModel: portViewModel)
         }
     }
 }

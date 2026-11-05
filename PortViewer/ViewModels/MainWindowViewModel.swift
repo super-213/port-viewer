@@ -240,6 +240,7 @@ final class MainWindowViewModel {
     var protocolFilter: ProtocolFilter = .all { didSet { invalidateDisplayedItems() } }
     var ipFilter: IPFilter = .all { didSet { invalidateDisplayedItems() } }
     var stateFilter = "" { didSet { invalidateDisplayedItems() } }
+    var tunnelOnly = false { didSet { invalidateDisplayedItems() } }
     var selectedID: ReadablePortItem.ID? {
         didSet { selectionDidChange() }
     }
@@ -253,6 +254,7 @@ final class MainWindowViewModel {
     @ObservationIgnored private var expiredSelection: ReadablePortItem?
     @ObservationIgnored private var expirationTask: Task<Void, Never>?
     @ObservationIgnored private var cachedRecordsRevision = -1
+    @ObservationIgnored private var cachedTunnelRevision = -1
     @ObservationIgnored private var cachedItems: [ReadablePortItem] = []
     @ObservationIgnored private var cachedPortMapBuckets: [PortMapBucket] = []
     @ObservationIgnored private var cachedDisplayedItems: [ReadablePortItem]?
@@ -331,6 +333,11 @@ final class MainWindowViewModel {
 
     var displayedItems: [ReadablePortItem] {
         let items = allItems
+        let revision = portViewModel.tunnelRevision
+        if revision != cachedTunnelRevision {
+            cachedTunnelRevision = revision
+            cachedDisplayedItems = nil
+        }
         if let cachedDisplayedItems { return cachedDisplayedItems }
 
         var filtered = items
@@ -342,6 +349,7 @@ final class MainWindowViewModel {
             .filter(matchesIPVersion)
             .filter(matchesState)
             .filter(matchesSearch)
+            .filter { !tunnelOnly || !portViewModel.tunnelAssociations(for: $0.rawRecords).isEmpty }
 
         filtered.sort(using: sortOrder)
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -372,10 +380,12 @@ final class MainWindowViewModel {
             || protocolFilter != .all
             || ipFilter != .all
             || !stateFilter.isEmpty
+            || tunnelOnly
     }
 
     var activeFilterLabels: [String] {
         var labels: [String] = []
+        if tunnelOnly { labels.append("有 Cloudflare 映射") }
         if scope != .all { labels.append(scope.rawValue) }
         if accessFilter != .all { labels.append(accessFilter.rawValue) }
         if ownerFilter != .all { labels.append(ownerFilter.rawValue) }
@@ -406,6 +416,7 @@ final class MainWindowViewModel {
     }
 
     func clearFilter(_ label: String) {
+        if label == "有 Cloudflare 映射" { tunnelOnly = false }
         if label == scope.rawValue { scope = .all }
         if label == accessFilter.rawValue { accessFilter = .all }
         if label == ownerFilter.rawValue { ownerFilter = .all }
@@ -423,6 +434,7 @@ final class MainWindowViewModel {
         protocolFilter = .all
         ipFilter = .all
         stateFilter = ""
+        tunnelOnly = false
     }
 
     func clearSearchAndFilters() {
@@ -586,7 +598,10 @@ final class MainWindowViewModel {
     }
 
     private func matchesSearch(_ item: ReadablePortItem) -> Bool {
-        item.rawRecords.contains { PortSearch.rank(of: $0, query: searchText) != nil }
+        item.rawRecords.contains {
+            PortSearch.rank(of: $0, query: searchText) != nil
+                || portViewModel.matchesTunnelSearch($0, query: searchText)
+        }
     }
 
     private func searchRank(for item: ReadablePortItem, query: String) -> Int {

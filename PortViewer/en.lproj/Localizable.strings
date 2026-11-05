@@ -517,3 +517,35 @@
 "包含端口采集和项目、服务信息补全的总耗时" = "Total time including port collection and project and service details";
 "macOS 原生 API" = "macOS native API";
 "lsof（原生采集回退）" = "lsof (native fallback)";
+
+/* Cloudflare Tunnel */
+"无法复核进程归属" = "Unable to verify process ownership";
+"隧道已连接" = "Tunnel connected";
+"隧道未连接" = "Tunnel disconnected";
+"连接状态未知" = "Connection unknown";
+"数据已过期" = "Data outdated";
+"状态不一" = "Mixed status";
+"请输入带端口的本机回环 HTTP 地址" = "Enter a loopback HTTP address with a port";
+"无法读取连接状态" = "Unable to read connection status";
+"无法读取域名映射" = "Unable to read domain mappings";
+"无法刷新隧道信息" = "Unable to refresh tunnel information";
+"有 Cloudflare 映射" = "Has Cloudflare mapping";
+"隧道连接状态不代表公网访问已验证" = "Tunnel connectivity does not verify public access";
+"公网访问未检测；隧道已连接不代表源站或域名可用。" = "Public access has not been tested. A connected tunnel does not verify the origin or domain.";
+"路径规则：%@" = "Path rule: %@";
+"路径匹配受 ingress 规则顺序限制" = "Path matching depends on ingress rule order";
+"地址或监听者可能有多个候选，未确认唯一归属" = "Multiple address or listener candidates; ownership is not unique";
+"端点可读，进程归属未确认" = "Endpoint readable; process ownership unverified";
+"复制域名" = "Copy Domain";
+"打开域名" = "Open Domain";
+"隧道技术信息" = "Tunnel Details";
+"配置版本：%lld" = "Configuration version: %lld";
+"映射观测时间：%@" = "Mapping observed: %@";
+"状态观测时间：%@" = "Status observed: %@";
+"来源：本机运行接口" = "Source: local runtime endpoint";
+"检测本机 Cloudflare Tunnel" = "Detect local Cloudflare Tunnels";
+"自动读取本机连接器的域名映射，不需要 API Token。" = "Read domain mappings from local connectors. No API token required.";
+"手动诊断端点（可选）" = "Diagnostic endpoint (optional)";
+"应用诊断端点" = "Apply Diagnostic Endpoint";
+"正在读取隧道信息…" = "Reading tunnel information…";
+"未发现可确认的本机隧道端点，可手动指定回环地址。" = "No verified local tunnel endpoint found. You can enter a loopback address.";

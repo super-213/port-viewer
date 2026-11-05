@@ -131,6 +131,12 @@ final class PortViewModel {
     private(set) var isPaused = false
     private(set) var recentListenerActivity: [ListenerActivityKey: RecentPortActivityChange] = [:]
     private(set) var activityHistory: [ActivityHistoryPoint] = []
+    private(set) var tunnelSnapshot = TunnelSnapshot.empty
+    private(set) var tunnelRevision = 0
+    private(set) var tunnelEnabled: Bool
+    private(set) var tunnelEndpoint: String
+    private(set) var isCheckingTunnels = false
+    private(set) var tunnelIssue: String?
     var terminationPrompt: TerminationPrompt?
     var feedback: OperationFeedback?
 
@@ -142,6 +148,11 @@ final class PortViewModel {
     @ObservationIgnored private let queryService: any PortQuerying
     @ObservationIgnored private let processService: any ProcessControlling
     @ObservationIgnored private let serviceContexts: (any ServiceContextProviding)?
+    @ObservationIgnored private let tunnelService: (any CloudflareTunnelDiscovering)?
+    @ObservationIgnored private var tunnelTask: Task<Void, Never>?
+    @ObservationIgnored private var tunnelGeneration = 0
+    @ObservationIgnored private var tunnelRefreshQueued = false
+    @ObservationIgnored private var latestSnapshotIsPartial = true
     @ObservationIgnored private var refreshLoop: Task<Void, Never>?
     @ObservationIgnored private var manualRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var terminationTask: Task<Void, Never>?
@@ -166,11 +177,15 @@ final class PortViewModel {
     init(
         queryService: any PortQuerying,
         processService: any ProcessControlling,
-        serviceContexts: (any ServiceContextProviding)? = nil
+        serviceContexts: (any ServiceContextProviding)? = nil,
+        tunnelService: (any CloudflareTunnelDiscovering)? = nil
     ) {
         self.queryService = queryService
         self.processService = processService
         self.serviceContexts = serviceContexts
+        self.tunnelService = tunnelService
+        self.tunnelEnabled = UserDefaults.standard.object(forKey: "cloudflareTunnelEnabled") as? Bool ?? true
+        self.tunnelEndpoint = UserDefaults.standard.string(forKey: "cloudflareTunnelEndpoint") ?? ""
     }
 
     deinit {
@@ -179,6 +194,7 @@ final class PortViewModel {
         terminationTask?.cancel()
         activityFeedbackCleanupTask?.cancel()
         queryCancellationTask?.cancel()
+        tunnelTask?.cancel()
     }
 
     private(set) var listeningCount = 0
@@ -202,6 +218,7 @@ final class PortViewModel {
 
     func stop() {
         isRunning = false
+        cancelTunnelCheck()
         refreshLoop?.cancel()
         refreshLoop = nil
         manualRefreshTask?.cancel()
@@ -263,6 +280,7 @@ final class PortViewModel {
     func togglePause() {
         isPaused.toggle()
         if isPaused {
+            cancelTunnelCheck()
             refreshLoop?.cancel()
             refreshLoop = nil
             state = .paused
@@ -276,6 +294,81 @@ final class PortViewModel {
 
     func dismissFeedback() {
         feedback = nil
+    }
+
+    func configureTunnels(enabled: Bool, endpoint: String) {
+        guard enabled != tunnelEnabled || endpoint != tunnelEndpoint else { return }
+        cancelTunnelCheck()
+        tunnelEnabled = enabled
+        tunnelEndpoint = endpoint
+        tunnelSnapshot = .empty
+        tunnelIssue = nil
+        tunnelRevision &+= 1
+        if enabled { scheduleTunnelCheck(force: true) }
+    }
+
+    func tunnelAssociations(for records: [PortRecord], at date: Date = Date()) -> [TunnelAssociation] {
+        guard tunnelEnabled else { return [] }
+        return tunnelSnapshot.associations(for: records, at: date,
+                                           maximumAge: max(60, 2 * (currentRefreshInterval ?? 30)))
+    }
+
+    func matchesTunnelSearch(_ record: PortRecord, query: String) -> Bool {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !text.hasPrefix(":") else { return false }
+        return tunnelAssociations(for: [record]).contains { $0.route.hostname.localizedCaseInsensitiveContains(text) }
+    }
+
+    private func cancelTunnelCheck() {
+        tunnelGeneration &+= 1
+        tunnelTask?.cancel()
+        tunnelRefreshQueued = false
+        isCheckingTunnels = false
+    }
+
+    private func scheduleTunnelCheck(force: Bool) {
+        guard tunnelEnabled, let tunnelService else { return }
+        if tunnelTask != nil {
+            tunnelRefreshQueued = tunnelRefreshQueued || force
+            return
+        }
+        let generation = tunnelGeneration
+        let records = self.records
+        let partial = latestSnapshotIsPartial
+        let endpoint = tunnelEndpoint
+        let interval: TimeInterval = isMainWindowVisible || isMenuBarPanelVisible ? 5 : 30
+        isCheckingTunnels = true
+        tunnelTask = Task { [weak self] in
+            do {
+                var snapshot = try await tunnelService.discover(records: records, isPartial: partial,
+                                                               manualEndpoint: endpoint, force: force, interval: interval)
+                try Task.checkCancellation()
+                if let self, generation == self.tunnelGeneration {
+                    // Reconcile late results with the current port snapshot before publishing.
+                    if !self.latestSnapshotIsPartial {
+                        let identities = Set(self.records.compactMap(\.context.identity))
+                        snapshot.connectors.removeAll { $0.identity.map { !identities.contains($0) } ?? false }
+                    }
+                    self.tunnelSnapshot = snapshot
+                    self.tunnelIssue = nil
+                    self.tunnelRevision &+= 1
+                }
+            } catch is CancellationError {
+                // Cancellation must not resurrect disabled state or publish a failure.
+            } catch {
+                if let self, generation == self.tunnelGeneration {
+                    self.tunnelIssue = "无法刷新隧道信息"
+                    self.tunnelRevision &+= 1
+                }
+            }
+            guard let self else { return }
+            self.tunnelTask = nil
+            self.isCheckingTunnels = false
+            if self.tunnelRefreshQueued {
+                self.tunnelRefreshQueued = false
+                self.scheduleTunnelCheck(force: true)
+            }
+        }
     }
 
     func listenerActivitySummary(for item: ReadablePortItem) -> ListenerActivitySummary? {
@@ -309,6 +402,10 @@ final class PortViewModel {
 
     func waitForManualRefreshForTesting() async {
         await manualRefreshTask?.value
+    }
+
+    func waitForTunnelRefreshForTesting() async {
+        await tunnelTask?.value
     }
 
     func waitForTerminationTaskForTesting() async {
@@ -571,6 +668,7 @@ final class PortViewModel {
         do {
             let snapshot = try await queryService.query(policy: .reuseInFlight)
             let recordsChanged = apply(snapshot)
+            scheduleTunnelCheck(force: reason == .manual)
             if snapshot.isPartial || recordsChanged {
                 consecutiveUnchangedAutomaticRefreshes = 0
             } else if reason == .automatic {
@@ -604,6 +702,13 @@ final class PortViewModel {
 
     @discardableResult
     private func apply(_ snapshot: PortSnapshot) -> Bool {
+        latestSnapshotIsPartial = snapshot.isPartial
+        if !snapshot.isPartial, !tunnelSnapshot.connectors.isEmpty {
+            let identities = Set(snapshot.records.compactMap(\.context.identity))
+            let count = tunnelSnapshot.connectors.count
+            tunnelSnapshot.connectors.removeAll { $0.identity.map { !identities.contains($0) } ?? false }
+            if count != tunnelSnapshot.connectors.count { tunnelRevision &+= 1 }
+        }
         recordActivityHistory(from: snapshot)
         updateListenerActivity(with: snapshot)
         let recordsChanged = !records.elementsEqual(

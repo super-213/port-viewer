@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct SettingsView: View {
+    let portViewModel: PortViewModel
+    @AppStorage("cloudflareTunnelEnabled") private var tunnelEnabled = true
+    @AppStorage("cloudflareTunnelEndpoint") private var tunnelEndpoint = ""
+    @State private var endpointDraft = ""
     @AppStorage("menuBarShowsCount") private var menuBarShowsCount = true
     @AppStorage("foregroundRefreshInterval") private var foregroundRefreshInterval = 3.0
     @AppStorage("backgroundRefreshInterval") private var backgroundRefreshInterval = 30.0
@@ -40,6 +44,48 @@ struct SettingsView: View {
             }
             .listRowBackground(PVPalette.surfaceBento)
 
+            Section("Cloudflare Tunnel") {
+                Toggle(L10n.string("检测本机 Cloudflare Tunnel"), isOn: $tunnelEnabled)
+                Text(L10n.string("自动读取本机连接器的域名映射，不需要 API Token。"))
+                    .font(.caption).foregroundStyle(PVPalette.textSecondary)
+                TextField(L10n.string("手动诊断端点（可选）"), text: $endpointDraft,
+                          prompt: Text("http://127.0.0.1:20241"))
+                    .onSubmit { tunnelEndpoint = endpointDraft.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .disabled(!tunnelEnabled)
+                Button(L10n.string("应用诊断端点")) {
+                    tunnelEndpoint = endpointDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    portViewModel.refreshNow()
+                }
+                .disabled(!tunnelEnabled)
+                if tunnelEnabled {
+                    if portViewModel.isCheckingTunnels {
+                        Text(L10n.string("正在读取隧道信息…")).font(.caption)
+                    } else if portViewModel.tunnelSnapshot.connectors.isEmpty {
+                        Text(L10n.string("未发现可确认的本机隧道端点，可手动指定回环地址。"))
+                            .font(.caption).foregroundStyle(PVPalette.textSecondary)
+                    }
+                    if let issue = portViewModel.tunnelIssue {
+                        Text(L10n.string(issue)).font(.caption).foregroundStyle(PVPalette.warning)
+                    }
+                    ForEach(portViewModel.tunnelSnapshot.connectors) { connector in
+                        TimelineView(.periodic(from: .now, by: 15)) { context in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(connector.endpoint.absoluteString).font(.caption.monospaced())
+                                Text(connector.isStale(at: context.date, maximumAge: 120)
+                                     ? L10n.string("数据已过期") : connector.state.title).font(.caption)
+                                if connector.identity == nil && (connector.observedAt != nil || connector.routesObservedAt != nil) {
+                                    Text(L10n.string("端点可读，进程归属未确认")).font(.caption)
+                                }
+                                if let issue = connector.issue {
+                                    Text(L10n.string(issue)).font(.caption).foregroundStyle(PVPalette.warning)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .listRowBackground(PVPalette.surfaceBento)
+
             Section("隐私与权限") {
                 VStack(spacing: 0) {
                     privacyRow(
@@ -61,7 +107,14 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background { PremiumCanvas() }
         .tint(PVPalette.accentPrimary)
-        .frame(width: 480, height: 380)
+        .frame(width: 520, height: 580)
+        .onAppear { endpointDraft = tunnelEndpoint }
+        .onChange(of: tunnelEnabled) { _, _ in syncTunnels() }
+        .onChange(of: tunnelEndpoint) { _, _ in syncTunnels() }
+    }
+
+    private func syncTunnels() {
+        portViewModel.configureTunnels(enabled: tunnelEnabled, endpoint: tunnelEndpoint)
     }
 
     private func settingPickerRow(

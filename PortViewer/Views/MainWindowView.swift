@@ -169,6 +169,7 @@ struct MainWindowView: View {
                     protocolFilter: $viewModel.protocolFilter,
                     ipFilter: $viewModel.ipFilter,
                     stateFilter: $viewModel.stateFilter,
+                    tunnelOnly: $viewModel.tunnelOnly,
                     stateOptions: viewModel.stateOptions,
                     activeFilterLabels: viewModel.activeFilterLabels.filter { $0 != viewModel.scope.rawValue },
                     visibleCount: viewModel.displayedItems.count,
@@ -1029,6 +1030,7 @@ private struct FilterBar: View {
     @Binding var protocolFilter: ProtocolFilter
     @Binding var ipFilter: IPFilter
     @Binding var stateFilter: String
+    @Binding var tunnelOnly: Bool
     let stateOptions: [String]
     let activeFilterLabels: [String]
     let visibleCount: Int
@@ -1077,6 +1079,7 @@ private struct FilterBar: View {
                         protocolFilter: $protocolFilter,
                         ipFilter: $ipFilter,
                         stateFilter: $stateFilter,
+                        tunnelOnly: $tunnelOnly,
                         stateOptions: stateOptions
                     )
                 }
@@ -1124,12 +1127,15 @@ private struct MoreFiltersPopover: View {
     @Binding var protocolFilter: ProtocolFilter
     @Binding var ipFilter: IPFilter
     @Binding var stateFilter: String
+    @Binding var tunnelOnly: Bool
     let stateOptions: [String]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("技术筛选")
                 .font(.headline)
+
+            Toggle(L10n.string("有 Cloudflare 映射"), isOn: $tunnelOnly)
 
             technicalPicker(
                 title: "传输方式",
@@ -1235,6 +1241,7 @@ private struct PortTable: View {
                                     .help("关键系统进程")
                             }
                         }
+                        TunnelSummaryView(portViewModel: portViewModel, records: item.rawRecords)
                         if expandedProcessGroups.contains(item.id) {
                             ForEach(item.processSummaries) { process in
                                 Text(process.processName + " · PID " + String(process.pid))
@@ -1479,6 +1486,10 @@ private struct RecordDetailView: View {
                                 .font(.caption)
                                 .foregroundStyle(warning.color)
                                 .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        if !hasEnded {
+                            TunnelDetailsView(portViewModel: portViewModel, records: item.rawRecords)
                         }
 
                         TechnicalDetailsView(

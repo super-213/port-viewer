@@ -177,7 +177,7 @@ struct MenuBarPanel: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(viewModel.displayedRecords) { record in
-                        MenuBarRecordButton(record: record) {
+                        MenuBarRecordButton(record: record, portViewModel: portViewModel) {
                             openMainWindow(selecting: record)
                         }
                     }
@@ -225,6 +225,7 @@ struct MenuBarPanel: View {
 
 private struct MenuBarRecordButton: View {
     let record: PortRecord
+    let portViewModel: PortViewModel
     let action: () -> Void
     @State private var isHovered = false
 
@@ -238,10 +239,13 @@ private struct MenuBarRecordButton: View {
                     .padding(.vertical, 3)
                     .background(PVPalette.waiting.opacity(0.09), in: RoundedRectangle(cornerRadius: PVRadius.micro))
                 ProcessIconView(record: record, size: 18)
-                Text(record.displayName)
-                    .foregroundStyle(PVPalette.textPrimary)
-                    .lineLimit(1)
-                    .help(record.displayName)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(record.displayName)
+                        .foregroundStyle(PVPalette.textPrimary)
+                        .lineLimit(1)
+                        .help(record.displayName)
+                    TunnelSummaryView(portViewModel: portViewModel, records: [record])
+                }
                 Spacer()
                 Label("等待连接", systemImage: "circle.fill")
                     .font(.caption)
@@ -249,7 +253,8 @@ private struct MenuBarRecordButton: View {
             }
             .contentShape(Rectangle())
             .padding(.horizontal, 16)
-            .frame(height: 34)
+            .frame(minHeight: 34)
+            .padding(.vertical, 3)
             .background(
                 PVPalette.accentPrimary.opacity(isHovered ? 0.06 : 0),
                 in: RoundedRectangle(cornerRadius: PVRadius.small)
@@ -263,6 +268,8 @@ private struct MenuBarRecordButton: View {
             "端口 %@，%@，正在等待连接",
             record.localPortText,
             record.displayName
-        ))
+        ) + portViewModel.tunnelAssociations(for: [record]).map {
+            " · " + $0.route.hostname + " · " + $0.statusTitle
+        }.joined())
     }
 }
