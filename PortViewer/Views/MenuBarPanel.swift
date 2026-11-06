@@ -133,13 +133,18 @@ struct MenuBarPanel: View {
     private func metric(title: String, value: Int, symbol: String, color: Color) -> some View {
         HStack(spacing: 7) {
             Image(systemName: symbol)
+                .font(.system(size: 14))
                 .foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(String(value)).font(.headline).monospacedDigit()
-                Text(L10n.string(title)).font(.caption).foregroundStyle(PVPalette.textSecondary)
-            }
+                .frame(width: 22, height: 22)
+            Text(String(value))
+                .font(.headline)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .help(L10n.string(title))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(L10n.format("%@ %lld 个", L10n.string(title), value))
     }
