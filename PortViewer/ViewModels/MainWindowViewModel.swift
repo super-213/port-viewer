@@ -382,16 +382,15 @@ final class MainWindowViewModel {
         }
         if let cachedDisplayedItems { return cachedDisplayedItems }
 
-        var filtered = items
-            .filter(matchesScope)
-            .filter(matchesAccess)
-            .filter(matchesOwner)
-            .filter(matchesConnectionPhase)
-            .filter(matchesProtocol)
-            .filter(matchesIPVersion)
-            .filter(matchesState)
-            .filter(matchesSearch)
-            .filter { !tunnelOnly || !portViewModel.tunnelAssociations(for: $0.rawRecords).isEmpty }
+        var filtered = items.filter(matchesScope)
+        filtered = filtered.filter(matchesAccess)
+        filtered = filtered.filter(matchesOwner)
+        filtered = filtered.filter(matchesConnectionPhase)
+        filtered = filtered.filter(matchesProtocol)
+        filtered = filtered.filter(matchesIPVersion)
+        filtered = filtered.filter(matchesState)
+        filtered = filtered.filter(matchesSearch)
+        filtered = filtered.filter { !tunnelOnly || !portViewModel.tunnelAssociations(for: $0.rawRecords).isEmpty }
 
         if scope == .all {
             let visibleServices = Set(filtered.filter { $0.representative.isListening }.map(\.id))

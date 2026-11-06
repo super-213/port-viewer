@@ -131,6 +131,38 @@ actor CloudflareTunnelService: CloudflareTunnelDiscovering {
 
     private func perform(records: [PortRecord], isPartial: Bool, manualEndpoint: String,
                          force: Bool, interval: TimeInterval) async throws -> TunnelSnapshot {
+        let selected = selectCandidates(records: records, isPartial: isPartial,
+                                        manualEndpoint: manualEndpoint, force: force, interval: interval)
+        let http = self.http
+        let inspector = self.inspector
+        let oldCache = cache
+        let results = try await withThrowingTaskGroup(of: (String, Cached?).self) { group in
+            for candidate in selected {
+                group.addTask {
+                    let result = try await Self.probe(candidate, cached: oldCache[candidate.key], force: force,
+                                                      http: http, inspector: inspector)
+                    return (candidate.key, result)
+                }
+            }
+            var results: [(String, Cached?)] = []
+            for try await result in group { results.append(result) }
+            return results
+        }
+        try Task.checkCancellation()
+        for (key, result) in results { cache[key] = result }
+        var connectors = cache.values.map(\.connector)
+        if !manualEndpoint.isEmpty && Self.localEndpoint(manualEndpoint) == nil {
+            // Never send a request for an invalid or remote diagnostic endpoint.
+            connectors.append(TunnelConnector(endpoint: URL(string: "http://127.0.0.1")!, identity: nil,
+                                              issue: "请输入带端口的本机回环 HTTP 地址"))
+        }
+        return TunnelSnapshot(connectors: connectors.sorted { $0.id < $1.id }, capturedAt: Date())
+    }
+
+    // Keep synchronous closure lifetimes separate from the async task group. Swift 6.3
+    // can stall in ClosureLifetimeFixup when both are compiled in the same function.
+    private func selectCandidates(records: [PortRecord], isPartial: Bool, manualEndpoint: String,
+                                  force: Bool, interval: TimeInterval) -> [Candidate] {
         let now = Date()
         let candidates = Self.candidates(records: records, manualEndpoint: manualEndpoint)
         let keys = Set(candidates.map(\.key))
@@ -160,30 +192,7 @@ actor CloudflareTunnelService: CloudflareTunnelDiscovering {
         let offset = due.isEmpty ? 0 : cursor % due.count
         let selected = Array((Array(due.dropFirst(offset)) + Array(due.prefix(offset))).prefix(4))
         cursor += selected.count
-        let http = self.http
-        let inspector = self.inspector
-        let oldCache = cache
-        let results = try await withThrowingTaskGroup(of: (String, Cached?).self) { group in
-            for candidate in selected {
-                group.addTask {
-                    let result = try await Self.probe(candidate, cached: oldCache[candidate.key], force: force,
-                                                      http: http, inspector: inspector)
-                    return (candidate.key, result)
-                }
-            }
-            var results: [(String, Cached?)] = []
-            for try await result in group { results.append(result) }
-            return results
-        }
-        try Task.checkCancellation()
-        for (key, result) in results { cache[key] = result }
-        var connectors = cache.values.map(\.connector)
-        if !manualEndpoint.isEmpty && Self.localEndpoint(manualEndpoint) == nil {
-            // Never send a request for an invalid or remote diagnostic endpoint.
-            connectors.append(TunnelConnector(endpoint: URL(string: "http://127.0.0.1")!, identity: nil,
-                                              issue: "请输入带端口的本机回环 HTTP 地址"))
-        }
-        return TunnelSnapshot(connectors: connectors.sorted { $0.id < $1.id }, capturedAt: Date())
+        return selected
     }
 
     private nonisolated static func candidates(records: [PortRecord], manualEndpoint: String) -> [Candidate] {

@@ -269,12 +269,18 @@ private struct MenuBarRecordButton: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .accessibilityLabel(L10n.format(
+        .accessibilityLabel(recordAccessibilityLabel)
+    }
+
+    private var recordAccessibilityLabel: String {
+        let portDescription = L10n.format(
             "端口 %@，%@，正在等待连接",
             record.localPortText,
             record.displayName
-        ) + portViewModel.tunnelAssociations(for: [record]).map {
-            " · " + $0.route.hostname + " · " + $0.statusTitle
-        }.joined())
+        )
+        let tunnelDescriptions = portViewModel.tunnelAssociations(for: [record]).map { association in
+            " · \(association.route.hostname) · \(association.statusTitle)"
+        }
+        return portDescription + tunnelDescriptions.joined()
     }
 }
