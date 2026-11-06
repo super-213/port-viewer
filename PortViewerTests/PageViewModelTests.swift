@@ -3,6 +3,50 @@ import XCTest
 
 @MainActor
 final class PageViewModelTests: XCTestCase {
+    func testServiceRowsCollapseAcceptedConnectionsAndKeepConnectionFiltersAndSelection() async throws {
+        let listener = PortTestFixtures.record(processName: "redis", pid: 10, localPort: 6379)
+        let accepted = PortTestFixtures.record(processName: "redis", pid: 10, fileDescriptor: "11", localPort: 6379,
+                                               remoteAddress: "127.0.0.1", remotePort: 54410, state: "ESTABLISHED")
+        let records = [listener, accepted]
+        let query = StubPortQueryService(responses: [
+            .snapshot(PortTestFixtures.snapshot(records: records)),
+            .snapshot(PortTestFixtures.snapshot(records: records)),
+            .snapshot(PortTestFixtures.snapshot(records: [listener]))
+        ])
+        let root = PortTestFixtures.viewModel(queryService: query)
+        let viewModel = MainWindowViewModel(portViewModel: root)
+        await root.refreshForTesting()
+        viewModel.scope = .all
+        let service = try XCTUnwrap(viewModel.displayedItems.first)
+        XCTAssertEqual(viewModel.displayedItems.count, 1)
+        XCTAssertEqual(viewModel.count(for: .all), 1)
+        XCTAssertEqual(viewModel.count(for: .waiting), 1)
+        XCTAssertEqual(viewModel.count(for: .connections), 1)
+        XCTAssertEqual(viewModel.overviewSnapshot.itemCount, 1)
+        let child = try XCTUnwrap(service.connectionChildren.first)
+        viewModel.select(child)
+        XCTAssertEqual(viewModel.selectedItem?.id, child.id)
+        await root.refreshForTesting()
+        viewModel.reconcileSelectionAfterRefresh()
+        XCTAssertFalse(viewModel.selectionHasEnded)
+        XCTAssertEqual(viewModel.selectedItem?.id, child.id)
+
+        viewModel.searchText = "54410"
+        XCTAssertEqual(viewModel.displayedItems.map(\.id), [service.id])
+        viewModel.searchText = ""
+        viewModel.scope = .connections
+        XCTAssertEqual(viewModel.displayedItems.count, 1)
+        XCTAssertEqual(viewModel.displayedItems.first?.serviceName, "redis")
+        viewModel.connectionPhaseFilter = .transitioning
+        XCTAssertTrue(viewModel.displayedItems.isEmpty)
+        viewModel.scope = .waiting
+        XCTAssertEqual(viewModel.displayedItems.map(\.id), [service.id])
+        await root.refreshForTesting()
+        viewModel.reconcileSelectionAfterRefresh()
+        XCTAssertTrue(viewModel.selectionHasEnded)
+        XCTAssertEqual(viewModel.displayedItems.first?.serviceConnections.count, 0)
+    }
+
     func testMainWindowSearchFiltersAndSortsFromSharedSnapshot() async {
         let node = PortTestFixtures.record(processName: "node", pid: 10, localPort: 3_000)
         let postgres = PortTestFixtures.record(processName: "postgres", pid: 20, transport: .tcp, localAddress: "*", localPort: 5432)

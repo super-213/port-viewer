@@ -153,7 +153,12 @@ struct PortActivitySnapshot: Equatable, Sendable {
     let remoteEndpointsByListener: [ListenerActivityKey: [String]]
 
     static func capture(from records: [PortRecord]) -> PortActivitySnapshot {
-        let listenerKeys = Set(records.compactMap { ListenerActivityKey(listener: $0) })
+        var listenersByKey: [ListenerActivityKey: [PortRecord]] = [:]
+        for listener in records {
+            guard let key = ListenerActivityKey(listener: listener) else { continue }
+            listenersByKey[key, default: []].append(listener)
+        }
+        let listenerKeys = Set(listenersByKey.keys)
         var connectionIDs = Dictionary(
             uniqueKeysWithValues: listenerKeys.map { ($0, Set<String>()) }
         )
@@ -162,7 +167,8 @@ struct PortActivitySnapshot: Equatable, Sendable {
         )
 
         for record in records {
-            guard let key = ListenerActivityKey(connection: record), listenerKeys.contains(key) else { continue }
+            guard let key = ListenerActivityKey(connection: record),
+                  listenersByKey[key]?.contains(where: { ServiceConnection.matches($0, connection: record) }) == true else { continue }
             connectionIDs[key, default: []].insert(record.id)
             remoteEndpoints[key, default: []].insert(record.remoteEndpoint)
         }
@@ -361,6 +367,25 @@ extension PortRecord {
     }
 }
 
+struct ServiceConnection: Identifiable, Hashable, Sendable {
+    let record: PortRecord
+    let client: PortRecord?
+
+    var id: String { record.id }
+    var clientName: String { client?.displayName ?? L10n.string("客户端") }
+
+    static func matches(_ listener: PortRecord, connection: PortRecord) -> Bool {
+        guard listener.isListening, connection.isActiveConnection,
+              listener.pid == connection.pid, listener.transport == connection.transport,
+              listener.localPort == connection.localPort,
+              listener.ipVersion == connection.ipVersion else { return false }
+        if let listenerIdentity = listener.context.identity, let connectionIdentity = connection.context.identity,
+           listenerIdentity != connectionIdentity { return false }
+        return listener.localAddress == connection.localAddress
+            || ["*", "0.0.0.0", "::"].contains(listener.localAddress)
+    }
+}
+
 struct ReadablePortItem: Identifiable, Hashable, Sendable {
     let id: String
     let rawRecords: [PortRecord]
@@ -368,6 +393,23 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     let remoteEndpoints: [String]
     let connectionCount: Int
     let processSummaries: [ProcessUsageSummary]
+    var serviceConnections: [ServiceConnection] = []
+    var parentServiceID: String?
+    var serviceName: String?
+    var clientRecord: PortRecord?
+    var isConnectionChild = false
+
+    var technicalRecords: [PortRecord] { rawRecords + serviceConnections.map(\.record) }
+    var connectionChildren: [ReadablePortItem] {
+        serviceConnections.map { connection in
+            var child = ReadablePortItem(id: "service-connection|" + connection.id, rawRecords: [connection.record])
+            child.parentServiceID = id
+            child.serviceName = processName
+            child.clientRecord = connection.client
+            child.isConnectionChild = true
+            return child
+        }
+    }
 
     init(id: String, rawRecords: [PortRecord]) {
         self.id = id
@@ -426,6 +468,7 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     }
 
     var localPortRoleText: String {
+        if serviceName != nil { return L10n.string("服务端口") }
         if representative.isListening { return L10n.string("服务端口") }
         if isConnectionSummary { return L10n.string("连接端口") }
         if transport == .udp { return L10n.string("UDP 端口") }
@@ -433,6 +476,7 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     }
 
     var localPortRelationshipText: String {
+        if serviceName != nil { return L10n.format("服务端口 %@", localPortText) }
         let port = localPorts.first.map(String.init) ?? L10n.string("未知")
         if representative.isListening {
             return localPorts.count > 1
@@ -485,6 +529,9 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     }
 
     var conclusion: String {
+        if let serviceName {
+            return L10n.format("%@ 的服务端口 %@ 当前有 %lld 条客户端连接。", serviceName, localPortText, connectionCount)
+        }
         let record = representative
         let port = record.localPort.map(String.init) ?? L10n.string("未知端口")
 
@@ -555,6 +602,9 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     }
 
     var textualRelationshipDescription: String {
+        if serviceName != nil {
+            return L10n.format("客户端通过 %lld 条连接接入服务端口 %@。", connectionCount, localPortText)
+        }
         let record = representative
         let port = record.localPort.map(String.init) ?? L10n.string("未知")
         if record.isListening {
@@ -603,6 +653,9 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     }
 
     var meaningMessages: [String] {
+        if serviceName != nil {
+            return [L10n.string("这些连接由服务端接受，客户端通过不同的地址或端口连接到同一服务端口。")]
+        }
         let record = representative
         if record.isListening {
             var messages = [accessScope.explanation]
@@ -641,6 +694,55 @@ struct ReadablePortItem: Identifiable, Hashable, Sendable {
     }
 
     static func group(_ records: [PortRecord]) -> [ReadablePortItem] {
+        var services = groupActivities(records.filter { !$0.isActiveConnection })
+        let listenersByKey = Dictionary(grouping: services.indices.flatMap { index in
+            services[index].rawRecords.compactMap { listener -> (ListenerActivityKey, Int, PortRecord)? in
+                guard let key = ListenerActivityKey(listener: listener) else { return nil }
+                return (key, index, listener)
+            }
+        }, by: { $0.0 })
+        let connections = records.filter(\.isActiveConnection)
+        let clientsByEndpoint = Dictionary(grouping: connections, by: \.localEndpoint)
+        var connectionsByService: [String: [PortRecord]] = [:]
+        for connection in connections {
+            let candidates = ListenerActivityKey(connection: connection).flatMap { listenersByKey[$0] } ?? []
+            // Prefer an exact bind over a wildcard when both are present.
+            let match = candidates.filter { ServiceConnection.matches($0.2, connection: connection) }
+                .sorted { left, right in
+                    let leftExact = left.2.localAddress == connection.localAddress
+                    let rightExact = right.2.localAddress == connection.localAddress
+                    return leftExact != rightExact ? leftExact : services[left.1].id < services[right.1].id
+                }.first
+            let parentID = match.map { services[$0.1].id } ?? ""
+            connectionsByService[parentID, default: []].append(connection)
+            if let match {
+                let clients = (clientsByEndpoint[connection.remoteEndpoint] ?? []).filter {
+                    $0.remoteEndpoint == connection.localEndpoint && $0.ipVersion == connection.ipVersion
+                }
+                let client = clients.count == 1 ? clients.first : nil
+                services[match.1].serviceConnections.append(.init(record: connection, client: client))
+            }
+        }
+        let serviceNames = Dictionary(uniqueKeysWithValues: services.map { ($0.id, $0.processName) })
+        let connectionGroups = connectionsByService.flatMap { parentID, connections in
+            groupActivities(connections).map { item in
+                guard !parentID.isEmpty else { return item }
+                var associated = ReadablePortItem(id: item.id + "|service|" + parentID, rawRecords: item.rawRecords)
+                associated.parentServiceID = parentID
+                associated.serviceName = serviceNames[parentID]
+                return associated
+            }
+        }
+        for index in services.indices {
+            services[index].serviceConnections.sort { $0.record.remoteEndpoint.localizedStandardCompare($1.record.remoteEndpoint) == .orderedAscending }
+        }
+        return (services + connectionGroups).sorted {
+            if $0.localPortSortValue != $1.localPortSortValue { return $0.localPortSortValue < $1.localPortSortValue }
+            return $0.processSortValue < $1.processSortValue
+        }
+    }
+
+    private static func groupActivities(_ records: [PortRecord]) -> [ReadablePortItem] {
         struct GroupKey: Hashable {
             let pid: Int32?
             let processIdentity: String

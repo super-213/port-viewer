@@ -156,14 +156,15 @@ struct PortSearch {
         guard !value.isEmpty else { return 0 }
 
         if value.hasPrefix(":"), let port = Int(value.dropFirst()) {
-            return record.localPort == port ? 0 : nil
+            return record.localPort == port || record.remotePort == port ? 0 : nil
         }
 
         if Int(value) != nil {
             let portText = record.localPort.map(String.init) ?? ""
+            let remotePortText = record.remotePort.map(String.init) ?? ""
             let pidText = String(record.pid)
-            if portText == value || pidText == value { return 0 }
-            if portText.contains(value) || pidText.contains(value) { return 1 }
+            if portText == value || remotePortText == value || pidText == value { return 0 }
+            if portText.contains(value) || remotePortText.contains(value) || pidText.contains(value) { return 1 }
             return nil
         }
 

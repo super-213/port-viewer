@@ -613,3 +613,22 @@
 "回环直接监听" = "Direct loopback listener";
 "当前状态待确认" = "Current status unconfirmed";
 "当前未再观察到监听" = "Listener no longer observed";
+
+"服务 / 活动组" = "Services / Activity Groups";
+"监听服务" = "Listening Services";
+"TCP 连接" = "TCP Connections";
+"其他活动记录" = "Other Socket Records";
+"%lld 个服务 / 活动组" = "%lld services / activity groups";
+"正在监听" = "Listening";
+"客户端" = "Client";
+"已接入客户端" = "Connected Clients";
+"展开客户端连接" = "Expand client connections";
+"收起客户端连接" = "Collapse client connections";
+"%lld 条" = "%lld";
+"%lld 条连接" = "%lld connections";
+"%lld 条接入连接" = "%lld client connections";
+"%lld 个客户端端点" = "%lld client endpoints";
+"接入 %@ · %@" = "Connected to %@ · %@";
+"这些连接由服务端接受，客户端通过不同的地址或端口连接到同一服务端口。" = "The service accepted these connections. Clients connect to the same service port using distinct addresses or ports.";
+"%@ 的服务端口 %@ 当前有 %lld 条客户端连接。" = "%1$@ currently has %3$lld client connections on service port %2$@.";
+"客户端通过 %lld 条连接接入服务端口 %@。" = "Clients access service port %2$@ through %1$lld connections.";

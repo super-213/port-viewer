@@ -12,8 +12,8 @@ struct CompactTopologyView: View {
     var body: some View {
         HStack(spacing: 5) {
             if isListening {
-                node(sourceTitle, symbol: sourceSymbol)
-                connector(dashed: item.accessScope != .localOnly)
+                node(item.serviceConnections.isEmpty ? sourceTitle : L10n.format("%lld 条接入连接", item.serviceConnections.count), symbol: item.serviceConnections.isEmpty ? sourceSymbol : "person.2")
+                connector(bidirectional: !item.serviceConnections.isEmpty, dashed: item.serviceConnections.isEmpty && item.accessScope != .localOnly)
                 portNode
                 connector()
                 node(
@@ -23,7 +23,7 @@ struct CompactTopologyView: View {
                     symbol: listenerProcessCount > 1 ? "person.2" : "app"
                 )
             } else {
-                node(item.processName, symbol: "app")
+                node(item.serviceName ?? item.processName, symbol: "app")
                 connector(bidirectional: true)
                 portNode
                 connector(bidirectional: true, dashed: item.representative.remoteAddress == nil)
@@ -105,6 +105,9 @@ struct CompactTopologyView: View {
     }
 
     private var targetTitle: String {
+        if item.serviceName != nil {
+            return item.remoteTargetCount > 1 ? L10n.format("%lld 个客户端端点", item.remoteTargetCount) : item.remoteEndpoints.first ?? L10n.string("客户端")
+        }
         if item.remoteTargetCount > 1 {
             return L10n.format("%lld 个目标", item.remoteTargetCount)
         }

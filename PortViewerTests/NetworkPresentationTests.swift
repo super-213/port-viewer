@@ -298,6 +298,49 @@ final class NetworkPresentationTests: XCTestCase {
         XCTAssertTrue(after.changes(comparedTo: before, observedAt: Date()).isEmpty)
     }
 
+    func testServiceConnectionsAttachOnlyToMatchingListenerAndResolveLocalClient() throws {
+        let listener = makeRecord(address: "127.0.0.1", localPort: 6379)
+        let accepted = makeRecord(address: "127.0.0.1", descriptor: "5", localPort: 6379,
+                                  remoteAddress: "127.0.0.1", remotePort: 54410, state: "ESTABLISHED")
+        let client = makeRecord(address: "127.0.0.1", pid: 456, localPort: 54410,
+                                remoteAddress: "127.0.0.1", remotePort: 6379, state: "ESTABLISHED")
+        let unrelated = makeRecord(address: "192.168.1.2", descriptor: "6", localPort: 6379,
+                                   remoteAddress: "10.0.0.8", remotePort: 443, state: "ESTABLISHED")
+        let items = ReadablePortItem.group([listener, accepted, client, unrelated])
+        let service = try XCTUnwrap(items.first { $0.representative.isListening })
+        XCTAssertEqual(service.serviceConnections.map(\.record.id), [accepted.id])
+        XCTAssertEqual(service.serviceConnections.first?.client?.pid, 456)
+        XCTAssertEqual(service.technicalRecords.count, 2)
+        XCTAssertEqual(service.connectionChildren.first?.parentServiceID, service.id)
+        XCTAssertEqual(items.first { $0.rawRecords.contains(accepted) }?.serviceName, service.processName)
+        XCTAssertNil(items.first { $0.rawRecords.contains(client) }?.parentServiceID)
+        XCTAssertNil(items.first { $0.rawRecords.contains(unrelated) }?.parentServiceID)
+    }
+
+    func testServiceAssociationHandlesWildcardAndKeepsAddressFamiliesSeparate() throws {
+        let wildcard = makeRecord(address: "0.0.0.0", localPort: 6379)
+        let ipv4 = makeRecord(address: "127.0.0.1", descriptor: "5", localPort: 6379,
+                              remoteAddress: "127.0.0.1", remotePort: 54410, state: "ESTABLISHED")
+        let ipv6 = makeRecord(address: "::1", descriptor: "6", ipVersion: .v6, localPort: 6379,
+                              remoteAddress: "::1", remotePort: 54411, state: "ESTABLISHED")
+        let service = try XCTUnwrap(ReadablePortItem.group([wildcard, ipv4, ipv6]).first { $0.representative.isListening })
+        XCTAssertEqual(service.serviceConnections.map(\.record.id), [ipv4.id])
+        let key = try XCTUnwrap(ListenerActivityKey(listener: wildcard))
+        XCTAssertEqual(PortActivitySnapshot.capture(from: [wildcard, ipv4, ipv6]).connectionIDsByListener[key], [ipv4.id])
+    }
+
+    func testExactListenerTakesPrecedenceOverWildcardAndMissingClientRemainsUnknown() throws {
+        let wildcard = makeRecord(address: "*", localPort: 6379)
+        let exact = makeRecord(address: "127.0.0.1", descriptor: "5", localPort: 6379)
+        let accepted = makeRecord(address: "127.0.0.1", descriptor: "6", localPort: 6379,
+                                  remoteAddress: "127.0.0.1", remotePort: 54410, state: "ESTABLISHED")
+        let services = ReadablePortItem.group([wildcard, exact, accepted]).filter { $0.representative.isListening }
+        XCTAssertEqual(services.flatMap(\.serviceConnections).count, 1)
+        let owner = try XCTUnwrap(services.first { !$0.serviceConnections.isEmpty })
+        XCTAssertEqual(owner.accessScope, .localOnly)
+        XCTAssertNil(owner.serviceConnections.first?.client)
+    }
+
     private func makeRecord(
         address: String,
         descriptor: String = "4",

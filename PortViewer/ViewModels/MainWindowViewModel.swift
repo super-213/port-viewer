@@ -57,6 +57,15 @@ enum SidebarScope: String, CaseIterable, Identifiable {
         }
     }
 
+    var metricTitle: String {
+        switch self {
+        case .all: return "服务 / 活动组"
+        case .waiting: return "监听服务"
+        case .connections: return "TCP 连接"
+        case .other: return "其他活动记录"
+        }
+    }
+
     var explanation: String {
         switch self {
         case .all: return L10n.string("所有端口和网络连接")
@@ -175,7 +184,7 @@ struct OverviewSnapshot: Equatable, Sendable {
     init(records: [PortRecord], itemCount: Int) {
         recordCount = records.count
         self.itemCount = itemCount
-        waitingCount = records.count(where: \.isListening)
+        waitingCount = ReadablePortItem.group(records.filter(\.isListening)).count
         connectionCount = records.count(where: \.isActiveConnection)
         networkPossibleCount = records.count {
             $0.isListening && $0.accessScope == .networkPossible
@@ -256,6 +265,7 @@ final class MainWindowViewModel {
     @ObservationIgnored private var cachedRecordsRevision = -1
     @ObservationIgnored private var cachedTunnelRevision = -1
     @ObservationIgnored private var cachedItems: [ReadablePortItem] = []
+    @ObservationIgnored private var cachedSelectableItems: [ReadablePortItem] = []
     @ObservationIgnored private var cachedPortMapBuckets: [PortMapBucket] = []
     @ObservationIgnored private var cachedDisplayedItems: [ReadablePortItem]?
     @ObservationIgnored private var cachedStateOptions: [String] = []
@@ -276,25 +286,31 @@ final class MainWindowViewModel {
             cachedRecordsRevision = revision
             let records = portViewModel.records
             cachedItems = ReadablePortItem.group(records)
-            cachedPortMapBuckets = PortMapLayout.buckets(for: cachedItems)
-            cachedOverviewSnapshot = OverviewSnapshot(records: records, itemCount: cachedItems.count)
+            cachedSelectableItems = cachedItems + cachedItems.flatMap(\.connectionChildren)
+            let rootItems = cachedItems.filter { $0.parentServiceID == nil }
+            cachedPortMapBuckets = PortMapLayout.buckets(for: rootItems)
+            cachedOverviewSnapshot = OverviewSnapshot(records: records, itemCount: rootItems.count)
             cachedDisplayedItems = nil
             cachedStateOptions = Array(Set(records.compactMap(\.normalizedState))).sorted()
 
             var counts = Dictionary(uniqueKeysWithValues: SidebarScope.allCases.map { ($0, 0) })
-            counts[.all] = records.count
+            counts[.all] = rootItems.count
+            counts[.waiting] = rootItems.count { $0.representative.isListening }
             for record in records {
-                if record.isListening {
-                    counts[.waiting, default: 0] += 1
-                } else if record.isActiveConnection {
+                if record.isActiveConnection {
                     counts[.connections, default: 0] += 1
-                } else {
+                } else if !record.isListening {
                     counts[.other, default: 0] += 1
                 }
             }
             cachedScopeCounts = counts
         }
         return cachedItems
+    }
+
+    private var selectableItems: [ReadablePortItem] {
+        _ = allItems
+        return cachedSelectableItems
     }
 
     var historicalItems: [ReadablePortItem] {
@@ -334,18 +350,18 @@ final class MainWindowViewModel {
     }
 
     var recordIDs: [ReadablePortItem.ID] {
-        allItems.map(\.id)
+        selectableItems.map(\.id)
     }
 
     var selectedItem: ReadablePortItem? {
         guard let selectedID else { return nil }
-        return allItems.first { $0.id == selectedID }
+        return selectableItems.first { $0.id == selectedID }
             ?? (expiredSelection?.id == selectedID ? expiredSelection : nil)
     }
 
     var selectionHasEnded: Bool {
         guard let selectedID else { return false }
-        return expiredSelection?.id == selectedID && !allItems.contains { $0.id == selectedID }
+        return expiredSelection?.id == selectedID && !selectableItems.contains { $0.id == selectedID }
     }
 
     var replacementItem: ReadablePortItem? {
@@ -377,6 +393,12 @@ final class MainWindowViewModel {
             .filter(matchesSearch)
             .filter { !tunnelOnly || !portViewModel.tunnelAssociations(for: $0.rawRecords).isEmpty }
 
+        if scope == .all {
+            let visibleServices = Set(filtered.filter { $0.representative.isListening }.map(\.id))
+            filtered.removeAll { item in
+                item.parentServiceID.map { visibleServices.contains($0) } ?? false
+            }
+        }
         filtered.sort(using: sortOrder)
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
@@ -497,19 +519,20 @@ final class MainWindowViewModel {
         }) else { return }
         resetFilters()
         searchText = ""
-        select(item)
+        let target = item.parentServiceID.flatMap { parentID in allItems.first { $0.id == parentID } } ?? item
+        select(target)
     }
 
     func reconcileSelectionAfterRefresh() {
         guard let selectedID else { return }
-        if let liveItem = allItems.first(where: { $0.id == selectedID }) {
+        if let liveItem = selectableItems.first(where: { $0.id == selectedID }) {
             lastSelectedItem = liveItem
             expiredSelection = nil
             expirationTask?.cancel()
             return
         }
         if let lastSelectedItem,
-           let continuation = allItems.first(where: { candidate in
+           let continuation = selectableItems.first(where: { candidate in
                candidate.rawRecords.contains { current in
                    lastSelectedItem.rawRecords.contains { previous in
                        current.id == previous.id
@@ -543,7 +566,7 @@ final class MainWindowViewModel {
             }
             guard let self,
                   self.selectedID == selectedID,
-                  !self.allItems.contains(where: { $0.id == selectedID }) else { return }
+                  !self.selectableItems.contains(where: { $0.id == selectedID }) else { return }
             self.clearSelection()
         }
     }
@@ -564,7 +587,7 @@ final class MainWindowViewModel {
             expirationTask?.cancel()
             return
         }
-        if let liveItem = allItems.first(where: { $0.id == selectedID }) {
+        if let liveItem = selectableItems.first(where: { $0.id == selectedID }) {
             lastSelectedItem = liveItem
             expiredSelection = nil
             expirationTask?.cancel()
@@ -625,17 +648,17 @@ final class MainWindowViewModel {
     }
 
     private func matchesState(_ item: ReadablePortItem) -> Bool {
-        stateFilter.isEmpty || item.rawRecords.contains { $0.normalizedState == stateFilter }
+        stateFilter.isEmpty || item.technicalRecords.contains { $0.normalizedState == stateFilter }
     }
 
     private func matchesSearch(_ item: ReadablePortItem) -> Bool {
-        item.rawRecords.contains {
+        item.technicalRecords.contains {
             PortSearch.rank(of: $0, query: searchText) != nil
                 || portViewModel.matchesTunnelSearch($0, query: searchText)
         }
     }
 
     private func searchRank(for item: ReadablePortItem, query: String) -> Int {
-        item.rawRecords.compactMap { PortSearch.rank(of: $0, query: query) }.min() ?? Int.max
+        item.technicalRecords.compactMap { PortSearch.rank(of: $0, query: query) }.min() ?? Int.max
     }
 }
