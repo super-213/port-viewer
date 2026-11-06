@@ -131,6 +131,15 @@ final class PortViewModel {
     private(set) var isPaused = false
     private(set) var recentListenerActivity: [ListenerActivityKey: RecentPortActivityChange] = [:]
     private(set) var activityHistory: [ActivityHistoryPoint] = []
+    private(set) var eventHistory = PortEventHistory()
+    private(set) var dockerStatus: DockerStatusSnapshot?
+    private(set) var dockerLastKnownStatus: DockerStatusSnapshot?
+    @ObservationIgnored private let dockerService: (any DockerStatusQuerying)?
+    @ObservationIgnored private var dockerTask: Task<Void, Never>?
+    @ObservationIgnored private var dockerGeneration = 0
+    @ObservationIgnored private var selectedDockerService: ManagedService?
+    @ObservationIgnored private var selectedDockerPorts: Set<Int> = []
+    @ObservationIgnored private var dockerBaseline: DockerStatusSnapshot?
     private(set) var tunnelSnapshot = TunnelSnapshot.empty
     private(set) var tunnelRevision = 0
     private(set) var tunnelEnabled: Bool
@@ -179,12 +188,14 @@ final class PortViewModel {
         processService: any ProcessControlling,
         serviceContexts: (any ServiceContextProviding)? = nil,
         tunnelService: (any CloudflareTunnelDiscovering)? = nil,
+        dockerService: (any DockerStatusQuerying)? = nil,
         userDefaults: UserDefaults = .standard
     ) {
         self.queryService = queryService
         self.processService = processService
         self.serviceContexts = serviceContexts
         self.tunnelService = tunnelService
+        self.dockerService = dockerService
         self.tunnelEnabled = userDefaults.object(forKey: "cloudflareTunnelEnabled") as? Bool ?? true
         self.tunnelEndpoint = TunnelDefaults.resolvedEndpoint(userDefaults.string(forKey: "cloudflareTunnelEndpoint"))
     }
@@ -196,6 +207,7 @@ final class PortViewModel {
         activityFeedbackCleanupTask?.cancel()
         queryCancellationTask?.cancel()
         tunnelTask?.cancel()
+        dockerTask?.cancel()
     }
 
     private(set) var listeningCount = 0
@@ -219,6 +231,8 @@ final class PortViewModel {
 
     func stop() {
         isRunning = false
+        interruptPortObservation(reason: L10n.string("采样中断 · 已停止采集"))
+        cancelDockerCheck()
         cancelTunnelCheck()
         refreshLoop?.cancel()
         refreshLoop = nil
@@ -281,6 +295,8 @@ final class PortViewModel {
     func togglePause() {
         isPaused.toggle()
         if isPaused {
+            interruptPortObservation(reason: L10n.string("采样中断 · 自动刷新已暂停"))
+            cancelDockerCheck()
             cancelTunnelCheck()
             refreshLoop?.cancel()
             refreshLoop = nil
@@ -289,8 +305,78 @@ final class PortViewModel {
             state = records.isEmpty ? .empty : .ready
             consecutiveUnchangedAutomaticRefreshes = 0
             restartRefreshLoop()
+            restartDockerCheck()
             refreshNow()
         }
+    }
+
+    func interruptPortObservation(reason: String) {
+        eventHistory.interrupt(at: Date(), reason: reason)
+        dockerBaseline = nil
+    }
+
+    func inspectDocker(for item: ReadablePortItem?) {
+        let services = Set((item?.rawRecords ?? []).compactMap(\.context.managedService).filter { $0.kind == .docker })
+        let service = services.count == 1 ? services.first : nil
+        selectedDockerPorts = Set(item?.localPorts ?? [])
+        guard service != selectedDockerService else { return }
+        let sameContainer = service?.id == selectedDockerService?.id
+        selectedDockerService = service
+        if !sameContainer {
+            dockerStatus = nil
+            dockerLastKnownStatus = nil
+            dockerBaseline = nil
+        }
+        restartDockerCheck()
+    }
+
+    private func cancelDockerCheck() {
+        dockerGeneration &+= 1
+        dockerTask?.cancel()
+        dockerTask = nil
+        dockerBaseline = nil
+    }
+
+    private func restartDockerCheck() {
+        // Preserve a continuous observation when only the ownership generation changed.
+        let baseline = dockerBaseline
+        cancelDockerCheck()
+        dockerBaseline = baseline
+        guard !isPaused, let service = selectedDockerService, let dockerService else { return }
+        let generation = dockerGeneration
+        dockerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    let snapshot = try await dockerService.status(for: service)
+                    try Task.checkCancellation()
+                    guard let self, generation == self.dockerGeneration else { return }
+                    self.applyDockerStatus(snapshot)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard let self, generation == self.dockerGeneration else { return }
+                    self.applyDockerStatus(.init(serviceID: service.id, observedAt: Date(), availability: .unavailable, container: nil))
+                }
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            }
+        }
+    }
+
+    private func applyDockerStatus(_ snapshot: DockerStatusSnapshot) {
+        if let previous = dockerBaseline, let old = previous.container, let new = snapshot.container,
+           previous.serviceID == snapshot.serviceID,
+           snapshot.observedAt.timeIntervalSince(previous.observedAt) <= 60,
+           let oldStart = old.startedAt, let newStart = new.startedAt,
+           !oldStart.isEmpty, !newStart.isEmpty, oldStart != newStart {
+            for port in selectedDockerPorts.sorted() {
+                eventHistory.append(.init(observedAt: snapshot.observedAt, kind: .containerChanged,
+                                          port: port, transport: .tcp,
+                                          summary: L10n.format("观察到容器启动代次变化 · %@ · :%lld", new.name, port)))
+            }
+        }
+        dockerStatus = snapshot
+        if snapshot.availability == .available { dockerLastKnownStatus = snapshot }
+        dockerBaseline = snapshot.availability == .available ? snapshot : nil
     }
 
     func dismissFeedback() {
@@ -683,6 +769,7 @@ final class PortViewModel {
         } catch is CancellationError {
             // Cancellation belongs to the task owner and should not replace the last UI state.
         } catch {
+            interruptPortObservation(reason: L10n.string("采样中断 · 查询失败"))
             consecutiveUnchangedAutomaticRefreshes = 0
             let failureState: QueryPresentationState
             if let queryError = error as? LsofQueryError, case .unavailable = queryError {
@@ -705,6 +792,7 @@ final class PortViewModel {
 
     @discardableResult
     private func apply(_ snapshot: PortSnapshot) -> Bool {
+        eventHistory.observe(snapshot, maximumGap: max(120, 3 * (currentRefreshInterval ?? 30)))
         latestSnapshotIsPartial = snapshot.isPartial
         if !snapshot.isPartial, !tunnelSnapshot.connectors.isEmpty {
             let identities = Set(snapshot.records.compactMap(\.context.identity))

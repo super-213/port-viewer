@@ -15,6 +15,7 @@ private actor GatedPortQueryService: PortQuerying {
     }
 
     func callCount() -> Int { calls }
+    func cancelCurrentQuery() { release() }
     func release() {
         let current = waiters
         waiters.removeAll()
@@ -150,15 +151,18 @@ final class PortQueryServiceTests: XCTestCase {
     }
 
     func testCancellationDoesNotTriggerFallbackAndNextRefreshWorks() async throws {
-        let native = StubPortQueryService(responses: [.snapshot(snapshot())], delay: .milliseconds(100))
+        let native = GatedPortQueryService(snapshot: snapshot())
         let lsof = StubPortQueryService(responses: [])
         let service = PortQueryService(native: native, lsof: lsof)
         let first = Task { try await service.query() }
-        try await started(native)
+        while await native.callCount() == 0 { await Task.yield() }
         await service.cancelCurrentQuery()
         do { _ = try await first.value; XCTFail("Expected cancellation") }
         catch { XCTAssertTrue(error is CancellationError) }
-        let next = try await service.query()
+        let nextQuery = Task { try await service.query() }
+        while await native.callCount() < 2 { await Task.yield() }
+        await native.release()
+        let next = try await nextQuery.value
         XCTAssertFalse(next.isPartial)
         let calls = await lsof.callCount()
         XCTAssertEqual(calls, 0)

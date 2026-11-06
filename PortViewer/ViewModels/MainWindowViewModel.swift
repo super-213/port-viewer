@@ -297,6 +297,32 @@ final class MainWindowViewModel {
         return cachedItems
     }
 
+    var historicalItems: [ReadablePortItem] {
+        let archived = portViewModel.eventHistory.archivedListeners.filter { previous in
+            !portViewModel.records.contains { current in
+                current.isListening && current.context.identity == previous.context.identity
+                    && current.pid == previous.pid && current.localEndpoint == previous.localEndpoint
+                    && current.transport == previous.transport && current.ipVersion == previous.ipVersion
+            }
+        }.filter { record in
+            PortSearch.rank(of: record, query: searchText) != nil
+                && (protocolFilter == .all || protocolFilter.rawValue == record.transport.rawValue)
+        }
+        // Keep different process generations independently selectable.
+        return Dictionary(grouping: archived, by: { $0.context.identity }).values.flatMap { records in
+            ReadablePortItem.group(records).map { item in
+                let identity = item.representative.context.identity
+                return ReadablePortItem(id: "history|\(identity?.startSeconds ?? 0)|\(identity?.startMicroseconds ?? 0)|" + item.id,
+                                        rawRecords: item.rawRecords)
+            }
+        }.sorted { $0.representative.updatedAt > $1.representative.updatedAt }
+    }
+
+    func selectHistorical(_ item: ReadablePortItem) {
+        select(item)
+        expiredSelection = item
+    }
+
     var portMapBuckets: [PortMapBucket] {
         _ = allItems
         return cachedPortMapBuckets
@@ -325,9 +351,9 @@ final class MainWindowViewModel {
     var replacementItem: ReadablePortItem? {
         guard selectionHasEnded, let expiredSelection else { return nil }
         return allItems.first {
-            $0.pid != expiredSelection.pid
+            $0.representative.context.identity != expiredSelection.representative.context.identity
                 && $0.transport == expiredSelection.transport
-                && $0.localPort == expiredSelection.localPort
+                && !Set($0.localPorts).isDisjoint(with: expiredSelection.localPorts)
         }
     }
 
@@ -488,6 +514,7 @@ final class MainWindowViewModel {
                    lastSelectedItem.rawRecords.contains { previous in
                        current.id == previous.id
                            || (current.pid == previous.pid
+                               && current.context.identity == previous.context.identity
                                && current.fileDescriptor == previous.fileDescriptor
                                && current.transport == previous.transport
                                && current.localEndpoint == previous.localEndpoint)
@@ -501,6 +528,10 @@ final class MainWindowViewModel {
             return
         }
         guard expiredSelection == nil, let lastSelectedItem else { return }
+        if lastSelectedItem.representative.isListening {
+            expiredSelection = lastSelectedItem
+            return
+        }
 
         expiredSelection = lastSelectedItem
         expirationTask?.cancel()

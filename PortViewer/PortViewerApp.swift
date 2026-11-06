@@ -37,7 +37,8 @@ struct PortViewerApp: App {
             queryService: PortQueryService(serviceContexts: serviceContexts),
             processService: ProcessService(),
             serviceContexts: serviceContexts,
-            tunnelService: CloudflareTunnelService()
+            tunnelService: CloudflareTunnelService(),
+            dockerService: DockerStatusService()
         )
         _portViewModel = State(initialValue: portViewModel)
         _mainWindowViewModel = State(

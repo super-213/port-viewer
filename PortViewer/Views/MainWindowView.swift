@@ -41,8 +41,12 @@ struct MainWindowView: View {
                 selectedPage = .activity(viewModel.scope)
             }
             portViewModel.setMainWindowVisible(true)
+            portViewModel.inspectDocker(for: viewModel.selectedItem)
         }
-        .onDisappear { portViewModel.setMainWindowVisible(false) }
+        .onDisappear {
+            portViewModel.setMainWindowVisible(false)
+            portViewModel.inspectDocker(for: nil)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .focusPortSearch)) { _ in
             showActivity(.all)
             searchIsFocused = true
@@ -65,6 +69,12 @@ struct MainWindowView: View {
         }
         .onChange(of: viewModel.recordIDs) { _, _ in
             viewModel.reconcileSelectionAfterRefresh()
+        }
+        .onChange(of: viewModel.selectedItem, initial: true) { _, item in
+            portViewModel.inspectDocker(for: item)
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in
+            portViewModel.interruptPortObservation(reason: L10n.string("采样中断 · 系统休眠"))
         }
         .onExitCommand(perform: viewModel.handleExitCommand)
         .alert(item: $portViewModel.terminationPrompt) { prompt in
@@ -176,6 +186,7 @@ struct MainWindowView: View {
                     clearFilter: viewModel.clearFilter,
                     reset: viewModel.resetFilters
                 )
+                historicalListeners
                 tableOrState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -185,6 +196,43 @@ struct MainWindowView: View {
             recordDetail
                 .frame(minWidth: 300, idealWidth: 330, maxWidth: 360, maxHeight: .infinity)
                 .background(PVPalette.surfaceBento)
+        }
+    }
+
+    private var historicalListeners: some View {
+        let items = viewModel.historicalItems
+        return Group {
+            if !items.isEmpty {
+                DisclosureGroup(L10n.format("最近监听记录 · %lld 项", items.count)) {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 6) {
+                            ForEach(items) { item in
+                                Button {
+                                    viewModel.selectHistorical(item)
+                                } label: {
+                                    HStack {
+                                        Text(item.processName)
+                                        Text(item.localPorts.map { ":\($0)" }.joined(separator: ", "))
+                                            .monospaced()
+                                        Spacer()
+                                        Text(item.representative.updatedAt, format: .dateTime.hour().minute().second())
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .font(.caption)
+                                    .padding(4)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityHint(L10n.string("查看最后观察到的监听与端口事件"))
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 140)
+                }
+                .font(.caption)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
         }
     }
 
@@ -1467,18 +1515,20 @@ private struct RecordDetailView: View {
                             Spacer()
                         }
 
-                        Text("连接流程")
+                        Text(L10n.string("局部拓扑"))
                             .font(.callout.weight(.semibold))
                         ConnectionDiagramView(
                             item: item,
                             relatedListenerItems: relatedListenerItems(for: item)
                         )
+                        PortMappingTopologyView(portViewModel: portViewModel, item: item, historical: hasEnded || portViewModel.state.issueMessage != nil || portViewModel.isPaused)
                         Divider()
 
                         PortStatusOverview(
                             item: item,
                             listenerActivity: portViewModel.listenerActivitySummary(for: item),
-                            hasEnded: hasEnded
+                            hasEnded: hasEnded,
+                            observationUncertain: portViewModel.state.issueMessage != nil || portViewModel.isPaused
                         )
 
                         ForEach(warnings(for: item), id: \.self) { warning in
@@ -1492,13 +1542,20 @@ private struct RecordDetailView: View {
                             TunnelDetailsView(portViewModel: portViewModel, records: item.rawRecords)
                         }
 
+                        if let service = item.representative.context.managedService, service.kind == .docker {
+                            DockerStatusDetailsView(portViewModel: portViewModel, service: service)
+                            Divider()
+                        }
+                        PortEventTimelineView(history: portViewModel.eventHistory, item: item)
+                        Divider()
+
                         TechnicalDetailsView(
                             item: item,
                             allItems: allItems,
                             allRecords: allRecords,
-                            queryDuration: queryDuration,
-                            queryDiagnostics: portViewModel.lastQueryDiagnostics,
-                            lastSuccessfulUpdate: lastSuccessfulUpdate,
+                            queryDuration: hasEnded ? nil : queryDuration,
+                            queryDiagnostics: hasEnded ? nil : portViewModel.lastQueryDiagnostics,
+                            lastSuccessfulUpdate: hasEnded ? item.representative.updatedAt : lastSuccessfulUpdate,
                             isExpanded: $technicalDetailsExpanded,
                             onSelectItem: onSelectItem
                         )
@@ -1521,13 +1578,14 @@ private struct RecordDetailView: View {
             Image(systemName: "clock.badge.checkmark")
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 3) {
-                Text("这项网络活动已结束")
+                Text(L10n.string(portViewModel.state.issueMessage != nil || portViewModel.isPaused
+                                 ? "当前无法确认这项活动的状态" : "当前未再观察到这项网络活动"))
                     .font(.headline)
                 if let replacement {
-                    Text("原活动已结束，但端口现在由 \(replacement.processName) 使用。")
+                    Text(L10n.format("最近一次采样中，端口由 %@ 使用。", replacement.processName))
                         .font(.callout)
                 } else {
-                    Text("下面暂时保留最后一次看到的信息，方便你理解发生了什么。")
+                    Text(L10n.string("下方保留最后观察到的信息，可继续查看端口事件。"))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -1671,7 +1729,7 @@ private struct ConnectionDiagramView: View {
             let sourceItems: [String]
             switch item.accessScope {
             case .localOnly:
-                sourceSubtitle = "仅本机应用"
+                sourceSubtitle = L10n.string("回环直接监听")
                 sourceItems = ["这台 Mac"]
             case .networkPossible:
                 sourceSubtitle = "其他设备可能可访问"
@@ -1785,11 +1843,12 @@ private struct PortStatusOverview: View {
     let item: ReadablePortItem
     let listenerActivity: ListenerActivitySummary?
     let hasEnded: Bool
+    let observationUncertain: Bool
 
     private var record: PortRecord { item.representative }
 
     private var statusColor: Color {
-        if hasEnded { return PVPalette.neutral }
+        if hasEnded || observationUncertain { return PVPalette.neutral }
         switch item.activityKind {
         case .waiting: return PVPalette.waiting
         case .connected: return PVPalette.connected
@@ -1799,7 +1858,8 @@ private struct PortStatusOverview: View {
     }
 
     private var statusTitle: String {
-        if hasEnded { return L10n.string("活动已结束") }
+        if observationUncertain { return L10n.string("当前状态待确认") }
+        if hasEnded { return L10n.string("当前未再观察到监听") }
         if let listenerActivity, listenerActivity.connectionCount > 0 {
             return L10n.string("有连接进入")
         }
@@ -1807,7 +1867,7 @@ private struct PortStatusOverview: View {
     }
 
     private var statusSubtitle: String {
-        if hasEnded { return L10n.string("最后一次观察到的端口信息") }
+        if hasEnded || observationUncertain { return L10n.string("最后一次观察到的端口信息") }
         if let listenerActivity {
             return listenerActivity.connectionCount == 0
                 ? L10n.string("正在监听，暂未发现连接")
@@ -1823,7 +1883,8 @@ private struct PortStatusOverview: View {
     }
 
     private var statusSymbol: String {
-        if hasEnded { return "checkmark.circle" }
+        if observationUncertain { return "questionmark.circle" }
+        if hasEnded { return "clock" }
         if let listenerActivity, listenerActivity.connectionCount > 0 { return "arrow.down.left.circle.fill" }
         switch item.activityKind {
         case .waiting: return "dot.radiowaves.left.and.right"
@@ -1834,6 +1895,9 @@ private struct PortStatusOverview: View {
     }
 
     private var connectionMetric: PortStatusMetricValue {
+        if hasEnded || observationUncertain {
+            return .init(symbol: "questionmark.circle", title: L10n.string("当前连接"), value: "—")
+        }
         if let listenerActivity {
             return .init(
                 symbol: listenerActivity.connectionCount > 0 ? "arrow.down.left" : "hourglass",
@@ -1878,7 +1942,7 @@ private struct PortStatusOverview: View {
                     metricStrip
                 }
             }
-            if let recentChange = listenerActivity?.recentChange {
+            if !hasEnded && !observationUncertain, let recentChange = listenerActivity?.recentChange {
                 Label(recentChange.kind.shortDescription, systemImage: recentChangeSymbol(recentChange.kind))
                     .font(.caption)
                     .foregroundStyle(.secondary)
