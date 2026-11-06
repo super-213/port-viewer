@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     let portViewModel: PortViewModel
+    @AppStorage(AppLanguage.preferenceKey) private var appLanguage = AppLanguage.system
     @AppStorage("cloudflareTunnelEnabled") private var tunnelEnabled = true
     @AppStorage("cloudflareTunnelEndpoint") private var tunnelEndpoint = TunnelDefaults.endpoint
     @State private var endpointDraft = TunnelDefaults.endpoint
@@ -11,6 +12,19 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("语言") {
+                Picker(L10n.string("应用语言"), selection: $appLanguage) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.title).tag(language)
+                    }
+                }
+                Text("更改语言后，退出并重新打开 Port Viewer 即可生效。")
+                    .font(.caption)
+                    .foregroundStyle(PVPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .listRowBackground(PVPalette.surfaceBento)
+
             Section("菜单栏") {
                 HStack(spacing: 12) {
                     Label("显示等待连接数量", systemImage: "menubar.rectangle")
@@ -121,6 +135,7 @@ struct SettingsView: View {
         }
         .onChange(of: tunnelEnabled) { _, _ in syncTunnels() }
         .onChange(of: tunnelEndpoint) { _, _ in syncTunnels() }
+        .onChange(of: appLanguage) { _, language in language.save() }
     }
 
     private func syncTunnels() {

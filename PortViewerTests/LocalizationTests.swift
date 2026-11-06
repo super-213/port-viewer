@@ -2,6 +2,32 @@ import XCTest
 @testable import PortViewer
 
 final class LocalizationTests: XCTestCase {
+    func testLanguageSelectionPersistsAnApplicationOverrideAndRestoresSystem() throws {
+        let suiteName = "PortViewer.LocalizationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertNil(defaults.object(forKey: AppLanguage.preferenceKey))
+        for language in [AppLanguage.english, .simplifiedChinese] {
+            language.save(to: defaults)
+            let restoredDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+            XCTAssertEqual(restoredDefaults.string(forKey: AppLanguage.preferenceKey), language.rawValue)
+            XCTAssertEqual(restoredDefaults.stringArray(forKey: "AppleLanguages"), [language.rawValue])
+        }
+
+        AppLanguage.system.save(to: defaults)
+        XCTAssertEqual(defaults.string(forKey: AppLanguage.preferenceKey), "system")
+        XCTAssertNil(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"])
+    }
+
+    func testLanguageSettingsHaveTranslations() {
+        let bundle = Bundle(for: PortViewModel.self)
+        for key in ["语言", "应用语言", "跟随系统", "更改语言后，退出并重新打开 Port Viewer 即可生效。"] {
+            XCTAssertNotEqual(localizedString(key, language: "en", bundle: bundle), key)
+            XCTAssertEqual(localizedString(key, language: "zh-Hans", bundle: bundle), key)
+        }
+    }
+
     func testSupportedLanguagesHaveExpectedResources() {
         let resourceBundle = Bundle(for: PortViewModel.self)
         XCTAssertTrue(resourceBundle.localizations.contains("zh-Hans"))

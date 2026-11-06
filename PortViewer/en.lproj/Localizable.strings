@@ -13,7 +13,8 @@
 "通用" = "General";
 "语言" = "Language";
 "应用语言" = "App Language";
-"更改会立即应用到所有窗口" = "Changes apply to all windows immediately";
+"跟随系统" = "Follow System";
+"更改语言后，退出并重新打开 Port Viewer 即可生效。" = "Quit and reopen Port Viewer to apply the language change.";
 "菜单栏" = "Menu Bar";
 "显示等待连接数量" = "Show Listening Count";
 "在图标旁显示等待连接数量" = "Show listening count next to the icon";
