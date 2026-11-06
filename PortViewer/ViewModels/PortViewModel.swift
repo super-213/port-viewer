@@ -178,14 +178,15 @@ final class PortViewModel {
         queryService: any PortQuerying,
         processService: any ProcessControlling,
         serviceContexts: (any ServiceContextProviding)? = nil,
-        tunnelService: (any CloudflareTunnelDiscovering)? = nil
+        tunnelService: (any CloudflareTunnelDiscovering)? = nil,
+        userDefaults: UserDefaults = .standard
     ) {
         self.queryService = queryService
         self.processService = processService
         self.serviceContexts = serviceContexts
         self.tunnelService = tunnelService
-        self.tunnelEnabled = UserDefaults.standard.object(forKey: "cloudflareTunnelEnabled") as? Bool ?? true
-        self.tunnelEndpoint = UserDefaults.standard.string(forKey: "cloudflareTunnelEndpoint") ?? ""
+        self.tunnelEnabled = userDefaults.object(forKey: "cloudflareTunnelEnabled") as? Bool ?? true
+        self.tunnelEndpoint = TunnelDefaults.resolvedEndpoint(userDefaults.string(forKey: "cloudflareTunnelEndpoint"))
     }
 
     deinit {
@@ -296,15 +297,17 @@ final class PortViewModel {
         feedback = nil
     }
 
-    func configureTunnels(enabled: Bool, endpoint: String) {
-        guard enabled != tunnelEnabled || endpoint != tunnelEndpoint else { return }
-        cancelTunnelCheck()
-        tunnelEnabled = enabled
-        tunnelEndpoint = endpoint
-        tunnelSnapshot = .empty
-        tunnelIssue = nil
-        tunnelRevision &+= 1
-        if enabled { scheduleTunnelCheck(force: true) }
+    func configureTunnels(enabled: Bool, endpoint: String, refresh: Bool = false) {
+        let changed = enabled != tunnelEnabled || endpoint != tunnelEndpoint
+        if changed {
+            cancelTunnelCheck()
+            tunnelEnabled = enabled
+            tunnelEndpoint = endpoint
+            tunnelSnapshot = .empty
+            tunnelIssue = nil
+            tunnelRevision &+= 1
+        }
+        if enabled && (changed || refresh) { scheduleTunnelCheck(force: true) }
     }
 
     func tunnelAssociations(for records: [PortRecord], at date: Date = Date()) -> [TunnelAssociation] {

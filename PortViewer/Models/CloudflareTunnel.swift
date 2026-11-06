@@ -1,5 +1,14 @@
 import Foundation
 
+enum TunnelDefaults {
+    static let endpoint = "http://127.0.0.1:20241"
+
+    static func resolvedEndpoint(_ savedEndpoint: String?) -> String {
+        let value = savedEndpoint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? endpoint : value
+    }
+}
+
 enum TunnelConnectionState: String, Sendable {
     case connected, disconnected, unknown
 

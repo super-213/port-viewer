@@ -203,7 +203,8 @@ actor CloudflareTunnelService: CloudflareTunnelDiscovering {
         }
         if let endpoint = localEndpoint(manualEndpoint) {
             let candidate = Candidate(endpoint: endpoint, identity: nil)
-            if values[candidate.key] == nil { values[candidate.key] = candidate }
+            // Explicit diagnostics remain usable when automatic ownership checks are inconclusive.
+            values[candidate.key] = candidate
         }
         return values.values.sorted { $0.key < $1.key }
     }

@@ -519,6 +519,11 @@
 "lsof（原生采集回退）" = "lsof (native fallback)";
 
 /* Cloudflare Tunnel */
+"输入本机连接器地址" = "Enter the local connector address";
+"恢复自动发现" = "Use Automatic Discovery";
+"恢复默认地址" = "Restore Default Address";
+"当前已应用：自动发现（手动地址为空）" = "Applied: automatic discovery (manual address is empty)";
+"当前已应用：%@" = "Applied: %@";
 "无法复核进程归属" = "Unable to verify process ownership";
 "隧道已连接" = "Tunnel connected";
 "隧道未连接" = "Tunnel disconnected";
@@ -545,7 +550,7 @@
 "来源：本机运行接口" = "Source: local runtime endpoint";
 "检测本机 Cloudflare Tunnel" = "Detect local Cloudflare Tunnels";
 "自动读取本机连接器的域名映射，不需要 API Token。" = "Read domain mappings from local connectors. No API token required.";
-"手动诊断端点（可选）" = "Diagnostic endpoint (optional)";
-"应用诊断端点" = "Apply Diagnostic Endpoint";
+"连接器地址" = "Connector address";
+"应用地址" = "Apply Address";
 "正在读取隧道信息…" = "Reading tunnel information…";
 "未发现可确认的本机隧道端点，可手动指定回环地址。" = "No verified local tunnel endpoint found. You can enter a loopback address.";

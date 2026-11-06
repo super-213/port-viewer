@@ -27,7 +27,7 @@ final class LocalizationTests: XCTestCase {
     func testCloudflareStatusAndSettingsAreLocalized() {
         let bundle = Bundle(for: PortViewModel.self)
         for key in ["隧道已连接", "隧道未连接", "连接状态未知", "数据已过期", "有 Cloudflare 映射",
-                    "检测本机 Cloudflare Tunnel", "手动诊断端点（可选）", "端点可读，进程归属未确认"] {
+                    "检测本机 Cloudflare Tunnel", "连接器地址", "端点可读，进程归属未确认"] {
             XCTAssertNotEqual(localizedString(key, language: "en", bundle: bundle), key)
             XCTAssertEqual(localizedString(key, language: "zh-Hans", bundle: bundle), key)
         }

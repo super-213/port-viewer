@@ -128,6 +128,19 @@ final class TunnelParsingTests: XCTestCase {
 }
 
 final class TunnelDiscoveryTests: XCTestCase {
+    func testManualEndpointStillReadsWhenAutomaticCandidateOwnershipCannotBeVerified() async throws {
+        let record = PortTestFixtures.record(processName: "cloudflared", localPort: 20241,
+                                             executablePath: "/opt/homebrew/bin/cloudflared")
+        let http = FakeTunnelHTTP()
+        let service = CloudflareTunnelService(http: http, inspector: FakeTunnelInspector(current: nil))
+        let snapshot = try await service.discover(records: [record], isPartial: false,
+                                                 manualEndpoint: TunnelFixtures.endpoint, force: true, interval: 5)
+        XCTAssertEqual(snapshot.connectors.count, 1)
+        XCTAssertNil(snapshot.connectors.first?.identity)
+        XCTAssertEqual(snapshot.connectors.first?.routes.count, 3)
+        XCTAssertEqual(snapshot.connectors.first?.state, .connected)
+    }
+
     func testPartialSnapshotAndUnreadableIdentityPreserveMappingsAsUnknown() async throws {
         let record = PortTestFixtures.record(processName: "cloudflared", localPort: 20241,
                                              executablePath: "/opt/homebrew/bin/cloudflared")
@@ -236,11 +249,64 @@ final class TunnelDiscoveryTests: XCTestCase {
 
 @MainActor
 final class TunnelViewModelTests: XCTestCase {
+    func testDefaultEndpointDiscoversWithoutOpeningSettingsOrApplying() async throws {
+        let suite = "PortViewerTests.TunnelDefaults.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = PortViewModel(
+            queryService: StubPortQueryService(responses: [.snapshot(PortTestFixtures.snapshot(records: []))]),
+            processService: StubProcessService(),
+            tunnelService: CloudflareTunnelService(http: FakeTunnelHTTP()),
+            userDefaults: defaults
+        )
+
+        XCTAssertEqual(root.tunnelEndpoint, TunnelFixtures.endpoint)
+        await root.refreshForTesting()
+        await root.waitForTunnelRefreshForTesting()
+        XCTAssertEqual(root.tunnelSnapshot.connectors.first?.endpoint.absoluteString, TunnelFixtures.endpoint)
+        XCTAssertEqual(root.tunnelSnapshot.connectors.first?.routes.count, 3)
+        root.stop()
+    }
+
+    func testSavedEmptyEndpointUsesDefaultAndCustomEndpointIsPreserved() throws {
+        let suite = "PortViewerTests.TunnelDefaults.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        for endpoint in ["http://127.0.0.1:20245", "", " \n "] {
+            defaults.set(endpoint, forKey: "cloudflareTunnelEndpoint")
+            let root = PortViewModel(queryService: StubPortQueryService(responses: []),
+                                     processService: StubProcessService(), userDefaults: defaults)
+            let expected = endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? TunnelFixtures.endpoint : endpoint
+            XCTAssertEqual(root.tunnelEndpoint, expected)
+        }
+    }
+
+    func testReapplyingSameEndpointRetriesEvenWhenPortQueriesFail() async throws {
+        let http = FakeTunnelHTTP()
+        await http.setFailure(true)
+        let root = PortViewModel(queryService: StubPortQueryService(responses: [.failure(.unavailable)]),
+                                 processService: StubProcessService(),
+                                 tunnelService: CloudflareTunnelService(http: http))
+        root.configureTunnels(enabled: true, endpoint: TunnelFixtures.endpoint, refresh: true)
+        await root.waitForTunnelRefreshForTesting()
+        XCTAssertEqual(root.tunnelSnapshot.connectors.first?.state, .unknown)
+        await root.refreshForTesting()
+        await http.setFailure(false)
+        root.configureTunnels(enabled: true, endpoint: TunnelFixtures.endpoint, refresh: true)
+        await root.waitForTunnelRefreshForTesting()
+        XCTAssertEqual(root.tunnelSnapshot.connectors.first?.routes.count, 3)
+        XCTAssertEqual(root.tunnelSnapshot.connectors.first?.state, .connected)
+        let count = await http.count()
+        XCTAssertEqual(count, 6)
+        root.stop()
+    }
+
     func testDomainsAreSearchableAcrossPagesAndDisablingInvalidatesCaches() async throws {
         let query = StubPortQueryService(responses: [.snapshot(PortTestFixtures.snapshot(records: [PortTestFixtures.record(localPort: 9001)]))])
         let service = CloudflareTunnelService(http: FakeTunnelHTTP())
         let root = PortViewModel(queryService: query, processService: StubProcessService(), tunnelService: service)
-        root.configureTunnels(enabled: true, endpoint: TunnelFixtures.endpoint)
+        root.configureTunnels(enabled: true, endpoint: TunnelFixtures.endpoint, refresh: true)
         await root.waitForTunnelRefreshForTesting()
         let main = MainWindowViewModel(portViewModel: root)
         let menu = MenuBarViewModel(portViewModel: root)
@@ -263,7 +329,7 @@ final class TunnelViewModelTests: XCTestCase {
     func testDisabledDiscoveryRejectsLateResults() async throws {
         let root = PortViewModel(queryService: StubPortQueryService(responses: []), processService: StubProcessService(),
                                  tunnelService: CloudflareTunnelService(http: FakeTunnelHTTP(delay: .milliseconds(30))))
-        root.configureTunnels(enabled: true, endpoint: TunnelFixtures.endpoint)
+        root.configureTunnels(enabled: true, endpoint: TunnelFixtures.endpoint, refresh: true)
         root.configureTunnels(enabled: false, endpoint: "")
         await root.waitForTunnelRefreshForTesting()
         XCTAssertTrue(root.tunnelSnapshot.connectors.isEmpty)

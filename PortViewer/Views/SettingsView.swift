@@ -3,8 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     let portViewModel: PortViewModel
     @AppStorage("cloudflareTunnelEnabled") private var tunnelEnabled = true
-    @AppStorage("cloudflareTunnelEndpoint") private var tunnelEndpoint = ""
-    @State private var endpointDraft = ""
+    @AppStorage("cloudflareTunnelEndpoint") private var tunnelEndpoint = TunnelDefaults.endpoint
+    @State private var endpointDraft = TunnelDefaults.endpoint
     @AppStorage("menuBarShowsCount") private var menuBarShowsCount = true
     @AppStorage("foregroundRefreshInterval") private var foregroundRefreshInterval = 3.0
     @AppStorage("backgroundRefreshInterval") private var backgroundRefreshInterval = 30.0
@@ -48,15 +48,21 @@ struct SettingsView: View {
                 Toggle(L10n.string("检测本机 Cloudflare Tunnel"), isOn: $tunnelEnabled)
                 Text(L10n.string("自动读取本机连接器的域名映射，不需要 API Token。"))
                     .font(.caption).foregroundStyle(PVPalette.textSecondary)
-                TextField(L10n.string("手动诊断端点（可选）"), text: $endpointDraft,
-                          prompt: Text("http://127.0.0.1:20241"))
-                    .onSubmit { tunnelEndpoint = endpointDraft.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .disabled(!tunnelEnabled)
-                Button(L10n.string("应用诊断端点")) {
-                    tunnelEndpoint = endpointDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    portViewModel.refreshNow()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L10n.string("连接器地址"))
+                    TextField(L10n.string("连接器地址"), text: $endpointDraft,
+                              prompt: Text(L10n.string("输入本机连接器地址")))
+                        .labelsHidden()
+                        .multilineTextAlignment(.leading)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(applyTunnelEndpoint)
+                        .disabled(!tunnelEnabled)
                 }
+                Button(L10n.string(endpointDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                   ? "恢复默认地址" : "应用地址"), action: applyTunnelEndpoint)
                 .disabled(!tunnelEnabled)
+                Text(L10n.format("当前已应用：%@", TunnelDefaults.resolvedEndpoint(tunnelEndpoint)))
+                    .font(.caption).foregroundStyle(PVPalette.textSecondary)
                 if tunnelEnabled {
                     if portViewModel.isCheckingTunnels {
                         Text(L10n.string("正在读取隧道信息…")).font(.caption)
@@ -108,13 +114,23 @@ struct SettingsView: View {
         .background { PremiumCanvas() }
         .tint(PVPalette.accentPrimary)
         .frame(width: 520, height: 580)
-        .onAppear { endpointDraft = tunnelEndpoint }
+        .onAppear {
+            tunnelEndpoint = TunnelDefaults.resolvedEndpoint(tunnelEndpoint)
+            endpointDraft = tunnelEndpoint
+            syncTunnels()
+        }
         .onChange(of: tunnelEnabled) { _, _ in syncTunnels() }
         .onChange(of: tunnelEndpoint) { _, _ in syncTunnels() }
     }
 
     private func syncTunnels() {
         portViewModel.configureTunnels(enabled: tunnelEnabled, endpoint: tunnelEndpoint)
+    }
+
+    private func applyTunnelEndpoint() {
+        tunnelEndpoint = TunnelDefaults.resolvedEndpoint(endpointDraft)
+        endpointDraft = tunnelEndpoint
+        portViewModel.configureTunnels(enabled: tunnelEnabled, endpoint: tunnelEndpoint, refresh: true)
     }
 
     private func settingPickerRow(
