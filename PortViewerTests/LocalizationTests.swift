@@ -59,6 +59,42 @@ final class LocalizationTests: XCTestCase {
         }
     }
 
+    func testSearchAndRelationshipDescriptionsHaveEnglishTranslations() {
+        let bundle = Bundle(for: PortViewModel.self)
+        let keys = [
+            "搜索应用名称或端口，例如 3000", "菜单栏端口搜索", "发送或接收", "这台 Mac 的端口",
+            "无固定对象", "端口未知", "访问来源", "同一网络设备", "来源暂不确定",
+            "共同使用其中端口", "连接目标", "可以尝试连接", "通信对象", "存在连接",
+            "系统没有提供固定的连接对象。", "这是该应用当前在本机使用的端口。",
+            "其他设备可能可访问", "显示这个节点的解释", "未知格式", "正在积累样本",
+            "全部", "已建立", "等待首次采样", "归属", "连接状态", "全部状态", "重试", "已暂停"
+        ]
+        for key in keys {
+            let english = localizedString(key, language: "en", bundle: bundle)
+            XCTAssertNotEqual(english, key, key)
+            XCTAssertNil(english.range(of: "\\p{Han}", options: .regularExpression), key)
+            XCTAssertEqual(localizedString(key, language: "zh-Hans", bundle: bundle), key)
+        }
+    }
+
+    func testRelationshipCountsUseLocalizedFormats() {
+        let bundle = Bundle(for: PortViewModel.self)
+        for (key, expected) in [
+            ("%lld 个进程", "3 processes"),
+            ("%lld 个服务端口", "3 service ports"),
+            ("%lld 个连接目标", "3 connection targets"),
+            ("共 %lld 条连接", "3 connections in total"),
+            ("%lld 个进程使用", "Used by 3 processes"),
+            ("%lld 个采样点", "3 samples"),
+            ("另有 %lld 项", "3 more items")
+        ] {
+            let template = localizedString(key, language: "en", bundle: bundle)
+            XCTAssertEqual(String(format: template, 3), expected)
+        }
+        let template = localizedString("%lld 个 · %lld 条连接", language: "en", bundle: bundle)
+        XCTAssertEqual(String(format: template, 2, 3), "2 peers · 3 connections")
+    }
+
     private func localizedString(_ key: String, language: String, bundle: Bundle) -> String {
         guard
             let path = bundle.path(forResource: language, ofType: "lproj"),

@@ -318,7 +318,7 @@ struct PremiumSearchField: View {
                 .foregroundStyle(isFocused ? PVPalette.accentPrimary : PVPalette.textSecondary)
                 .frame(width: 16)
 
-            TextField(prompt, text: $text)
+            TextField(L10n.string(prompt), text: $text)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
                 .foregroundStyle(PVPalette.textPrimary)

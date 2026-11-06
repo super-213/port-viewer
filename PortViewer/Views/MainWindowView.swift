@@ -620,9 +620,9 @@ private enum OverviewTimeRange: TimeInterval, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .fiveMinutes: return "5 分钟"
-        case .fifteenMinutes: return "15 分钟"
-        case .thirtyMinutes: return "30 分钟"
+        case .fiveMinutes: return L10n.string("5 分钟")
+        case .fifteenMinutes: return L10n.string("15 分钟")
+        case .thirtyMinutes: return L10n.string("30 分钟")
         }
     }
 }
@@ -676,7 +676,7 @@ private struct OverviewTrendPanel: View {
         OverviewPanel(
             title: "活动趋势",
             symbol: "chart.xyaxis.line",
-            subtitle: history.count > 1 ? "\(history.count) 个采样点" : "正在积累样本"
+            subtitle: history.count > 1 ? L10n.format("%lld 个采样点", history.count) : "正在积累样本"
         ) {
             HStack(spacing: 14) {
                 trendLegend("全部", color: PVPalette.accentPrimary)
@@ -697,7 +697,7 @@ private struct OverviewTrendPanel: View {
                     LineMark(
                         x: .value("时间", point.timestamp),
                         y: .value("全部", point.totalCount),
-                        series: .value("序列", "全部")
+                        series: .value("序列", L10n.string("全部"))
                     )
                     .foregroundStyle(PVPalette.accentPrimary)
                     .lineStyle(StrokeStyle(lineWidth: 2.1, lineCap: .round, lineJoin: .round))
@@ -706,7 +706,7 @@ private struct OverviewTrendPanel: View {
                     LineMark(
                         x: .value("时间", point.timestamp),
                         y: .value("等待", point.waitingCount),
-                        series: .value("序列", "等待")
+                        series: .value("序列", L10n.string("等待"))
                     )
                     .foregroundStyle(PVPalette.waiting)
                     .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
@@ -715,7 +715,7 @@ private struct OverviewTrendPanel: View {
                     LineMark(
                         x: .value("时间", point.timestamp),
                         y: .value("已建立", point.connectedCount),
-                        series: .value("序列", "已建立")
+                        series: .value("序列", L10n.string("已建立"))
                     )
                     .foregroundStyle(PVPalette.connected)
                     .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
@@ -778,8 +778,8 @@ private struct OverviewTrendPanel: View {
     }
 
     private var trendAccessibilityLabel: String {
-        guard let latest = history.last else { return "尚无活动趋势数据" }
-        return "活动趋势，最新共有 \(latest.totalCount) 条记录，等待连接 \(latest.waitingCount) 条，连接已建立 \(latest.connectedCount) 条"
+        guard let latest = history.last else { return L10n.string("尚无活动趋势数据") }
+        return L10n.format("活动趋势，最新共有 %lld 条记录，等待连接 %lld 条，连接已建立 %lld 条", latest.totalCount, latest.waitingCount, latest.connectedCount)
     }
 }
 
@@ -851,8 +851,8 @@ private struct OverviewTopProcessesPanel: View {
     }
 
     private var processAccessibilityLabel: String {
-        let values = processes.map { "\($0.processName) \($0.recordCount) 条" }.joined(separator: "，")
-        return "活动最多的应用：\(values)"
+        let values = processes.map { L10n.format("%@ %lld 条", $0.processName, $0.recordCount) }.joined(separator: "，")
+        return L10n.format("活动最多的应用：%@", values)
     }
 }
 
@@ -948,7 +948,7 @@ private struct OverviewStackedBar: View {
     }
 
     private var accessibilityLabel: String {
-        visibleItems.map { "\($0.kind.title) \($0.count) 条" }.joined(separator: "，")
+        visibleItems.map { L10n.format("%@ %lld 条", $0.kind.title, $0.count) }.joined(separator: "，")
     }
 }
 
@@ -1406,9 +1406,9 @@ private struct PortTable: View {
         if item.representative.isListening {
             if item.localPorts.count > 1 {
                 let ports = item.localPorts.map(String.init).joined(separator: "、")
-                return "应用正在通过 \(item.localPorts.count) 个服务端口等待连接：\(ports)。同一应用可以为不同功能使用多个服务端口。"
+                return L10n.format("应用正在通过 %lld 个服务端口等待连接：%@。同一应用可以为不同功能使用多个服务端口。", item.localPorts.count, ports)
             }
-            return "服务端口 \(item.localPortText)：应用在这里等待其他程序连接。"
+            return L10n.format("服务端口 %@：应用在这里等待其他程序连接。", item.localPortText)
         }
         if item.serviceName != nil {
             return L10n.format("服务端口 %@", item.localPortText)
@@ -1416,9 +1416,9 @@ private struct PortTable: View {
         if item.isConnectionSummary {
             let ports = item.localPorts.map(String.init).joined(separator: "、")
             if item.localPorts.count > 1 {
-                return "应用通过 \(item.localPorts.count) 个本机连接端口建立网络连接：\(ports)。这些端口不表示对外开放的服务。"
+                return L10n.format("应用通过 %lld 个本机连接端口建立网络连接：%@。这些端口不表示对外开放的服务。", item.localPorts.count, ports)
             }
-            return "本机连接端口 \(item.localPortText)：它用于区分这组连接，不表示应用正在对外提供服务。"
+            return L10n.format("本机连接端口 %@：它用于区分这组连接，不表示应用正在对外提供服务。", item.localPortText)
         }
         return "\(item.localPortRoleText) \(item.localPortText)。"
     }
@@ -1482,7 +1482,7 @@ private struct FriendlyStatusLabel: View {
                 .lineLimit(1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("正在做什么：\(item.friendlyStatusTitle)")
+        .accessibilityLabel(L10n.format("正在做什么：%@", item.friendlyStatusTitle))
         .help(item.representative.friendlyStatusExplanation)
     }
 
@@ -1588,7 +1588,7 @@ private struct RecordDetailView: View {
                         )
 
                         ForEach(warnings(for: item), id: \.self) { warning in
-                            Label(warning.text, systemImage: warning.symbol)
+                            Label(L10n.string(warning.text), systemImage: warning.symbol)
                                 .font(.caption)
                                 .foregroundStyle(warning.color)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -1865,11 +1865,11 @@ private struct ConnectionDiagramView: View {
             let processItems = relatedProcesses.map { process in
                 "\(process.name) · PID \(process.pid)"
             }
-            let processTitle = processItems.count > 1 ? "\(processItems.count) 个进程" : item.processName
+            let processTitle = processItems.count > 1 ? L10n.format("%lld 个进程", processItems.count) : item.processName
             let processSubtitle = processItems.count > 1 ? "共同使用其中端口" : "应用/服务"
             return [
                 .init(id: "source", title: item.serviceConnections.isEmpty ? "访问来源" : "已接入客户端", subtitle: item.serviceConnections.isEmpty ? sourceSubtitle : L10n.format("%lld 条连接", item.serviceConnections.count), symbol: "laptopcomputer.and.arrow.down", explanation: item.accessScope.explanation, items: item.serviceConnections.isEmpty ? sourceItems : Array(Set(item.serviceConnections.map { $0.record.remoteEndpoint })).sorted()),
-                .init(id: "port", title: item.localPorts.count > 1 ? "\(item.localPorts.count) 个服务端口" : "服务端口", subtitle: "等待连接", symbol: "rectangle.stack.fill", explanation: item.localPorts.count > 1 ? "这个应用正在通过多个服务端口等待连接；每个端口可以服务不同功能。" : "这是该应用在本机等待连接的服务端口。", items: item.localPorts.map { ":\($0)" }),
+                .init(id: "port", title: item.localPorts.count > 1 ? L10n.format("%lld 个服务端口", item.localPorts.count) : "服务端口", subtitle: "等待连接", symbol: "rectangle.stack.fill", explanation: item.localPorts.count > 1 ? "这个应用正在通过多个服务端口等待连接；每个端口可以服务不同功能。" : "这是该应用在本机等待连接的服务端口。", items: item.localPorts.map { ":\($0)" }),
                 .init(id: "app", title: processTitle, subtitle: processSubtitle, symbol: processItems.count > 1 ? "person.2.fill" : "app.dashed", explanation: processItems.count > 1 ? "这些进程使用了相同的服务端口；这可能来自共享监听、继承的 socket 或不同监听地址。" : "这个应用或后台服务正在使用该端口。", items: processItems.count > 1 ? processItems : [])
             ]
         }
@@ -1878,12 +1878,12 @@ private struct ConnectionDiagramView: View {
         let targetSubtitle: String
         let targetExplanation: String
         if item.isConnectionSummary, item.remoteTargetCount > 1 {
-            target = "\(item.remoteTargetCount) 个连接目标"
-            targetSubtitle = "共 \(item.connectionCount) 条连接"
+            target = L10n.format("%lld 个连接目标", item.remoteTargetCount)
+            targetSubtitle = L10n.format("共 %lld 条连接", item.connectionCount)
             targetExplanation = "这些连接的对方地址或端口不同。展开技术详情可以查看每一个连接对象。"
         } else {
             target = record.remoteAddress == nil ? "可能的通信对象" : record.remoteAddress ?? "连接对象未知"
-            targetSubtitle = record.remotePort.map { "端口 \($0)" } ?? (record.remoteAddress == nil ? "无固定对象" : "端口未知")
+            targetSubtitle = record.remotePort.map { L10n.format("端口 %lld", $0) } ?? (record.remoteAddress == nil ? "无固定对象" : "端口未知")
             targetExplanation = record.remoteAddress == nil
                 ? "系统没有提供固定的连接对象。"
                 : "这是系统返回的另一端地址；不会据此推断网站、位置或安全性。"
@@ -1900,8 +1900,8 @@ private struct ConnectionDiagramView: View {
         }
         return [
             .init(id: "app", title: item.processName, subtitle: "应用/服务", symbol: "app.dashed", explanation: "这个应用或后台服务正在进行网络活动。"),
-            .init(id: "port", title: item.serviceName != nil ? "服务端口" : item.isConnectionSummary ? "本机连接端口" : "这台 Mac 的端口", subtitle: item.localPorts.count > 1 ? "\(item.localPorts.count) 个" : item.localPortRelationshipText, symbol: "rectangle.connected.to.line.below", explanation: localPortExplanation, items: item.localPorts.map { ":\($0)" }),
-            .init(id: "target", title: item.serviceName != nil ? "客户端" : item.isConnectionSummary ? "连接目标" : target, subtitle: item.isConnectionSummary ? "\(item.remoteTargetCount) 个 · \(item.connectionCount) 条连接" : targetSubtitle, symbol: "network", explanation: targetExplanation, items: item.isConnectionSummary ? item.remoteEndpoints : [])
+            .init(id: "port", title: item.serviceName != nil ? "服务端口" : item.isConnectionSummary ? "本机连接端口" : "这台 Mac 的端口", subtitle: item.localPorts.count > 1 ? L10n.format("%lld 个", item.localPorts.count) : item.localPortRelationshipText, symbol: "rectangle.connected.to.line.below", explanation: localPortExplanation, items: item.localPorts.map { ":\($0)" }),
+            .init(id: "target", title: item.serviceName != nil ? "客户端" : item.isConnectionSummary ? "连接目标" : target, subtitle: item.isConnectionSummary ? L10n.format("%lld 个 · %lld 条连接", item.remoteTargetCount, item.connectionCount) : targetSubtitle, symbol: "network", explanation: targetExplanation, items: item.isConnectionSummary ? item.remoteEndpoints : [])
         ]
     }
 
@@ -1910,7 +1910,7 @@ private struct ConnectionDiagramView: View {
         if record.isListening {
             return [
                 .init(label: item.serviceConnections.isEmpty ? (item.accessScope == .networkPossible ? "可能可访问" : "可以尝试连接") : L10n.format("%lld 条连接", item.serviceConnections.count), bidirectional: !item.serviceConnections.isEmpty, dashed: item.serviceConnections.isEmpty && item.accessScope != .localOnly),
-                .init(label: relatedListenerProcessCount > 1 ? "\(relatedListenerProcessCount) 个进程使用" : "等待连接", bidirectional: false, dashed: false)
+                .init(label: relatedListenerProcessCount > 1 ? L10n.format("%lld 个进程使用", relatedListenerProcessCount) : "等待连接", bidirectional: false, dashed: false)
             ]
         }
         if record.transport == .udp {
@@ -1920,7 +1920,7 @@ private struct ConnectionDiagramView: View {
             ]
         }
         return [
-            .init(label: item.connectionCount > 1 ? "\(item.connectionCount) 条连接" : "存在连接", bidirectional: true, dashed: false),
+            .init(label: item.connectionCount > 1 ? L10n.format("%lld 条连接", item.connectionCount) : "存在连接", bidirectional: true, dashed: false),
             .init(label: item.friendlyStatusTitle, bidirectional: true, dashed: false)
         ]
     }
@@ -1947,7 +1947,7 @@ private struct ConnectionDiagramView: View {
             .frame(maxWidth: .infinity)
 
             if let selectedNodeID, let node = nodes.first(where: { $0.id == selectedNodeID }) {
-                Label(node.explanation, systemImage: node.symbol)
+                Label(L10n.string(node.explanation), systemImage: node.symbol)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .transition(.opacity)
@@ -2129,10 +2129,10 @@ private struct PortStatusOverview: View {
 
     private var accessibilityDescription: String {
         let ports = item.localPorts.isEmpty
-            ? "端口未知"
-            : "本机\(item.localPortRoleText)\(item.localPorts.map(String.init).joined(separator: "、"))"
+            ? L10n.string("端口未知")
+            : L10n.format("本机%@%@", item.localPortRoleText, item.localPorts.map(String.init).joined(separator: L10n.string("、")))
         let activity = listenerActivity.map { "。\($0.accessibilityDescription)" } ?? ""
-        return "\(ports)。状态：\(statusTitle)。协议：\(record.protocolDisplay)\(activity)"
+        return L10n.format("%@。状态：%@。协议：%@%@", ports, statusTitle, record.protocolDisplay, activity)
     }
 }
 
@@ -2234,7 +2234,7 @@ private struct RelationshipNodeView: View {
                             BranchItemRow(text: item)
                         }
                         if node.items.count > 3 {
-                            Text("另有 \(node.items.count - 3) 项")
+                            Text(L10n.format("另有 %lld 项", node.items.count - 3))
                                 .font(.caption2.weight(.medium))
                                 .foregroundStyle(PVPalette.accentPrimary)
                                 .padding(.leading, 17)
@@ -2264,8 +2264,8 @@ private struct RelationshipNodeView: View {
     }
 
     private var accessibilityText: String {
-        let itemText = node.items.isEmpty ? "" : "包含：\(node.items.joined(separator: "、"))。"
-        return "\(node.title)，\(node.subtitle)。\(itemText)\(node.explanation)"
+        let itemText = node.items.isEmpty ? "" : L10n.format("包含：%@。", node.items.map { L10n.string($0) }.joined(separator: L10n.string("、")))
+        return L10n.format("%@，%@。%@%@", L10n.string(node.title), L10n.string(node.subtitle), itemText, L10n.string(node.explanation))
     }
 }
 
@@ -2280,7 +2280,7 @@ private struct BranchItemRow: View {
             Rectangle()
                 .fill(PVPalette.accentPrimary.opacity(0.45))
                 .frame(width: 9, height: 1)
-            Text(text)
+            Text(L10n.string(text))
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -2320,7 +2320,7 @@ private struct HorizontalConnectorView: View {
         }
         .frame(minWidth: 70, idealWidth: 100, maxWidth: 120)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(connector.label)\(connector.dashed ? "，虚线表示可能关系" : "")")
+        .accessibilityLabel(L10n.string(connector.label) + (connector.dashed ? L10n.string("，虚线表示可能关系") : ""))
     }
 }
 
@@ -2417,7 +2417,7 @@ private struct TechnicalDetailsView: View {
         }
         if item.processCount > 1 {
             fields.insert(
-                .init(title: "组成进程", value: "\(item.processCount) 个", explanation: "这些进程使用了同一组服务端口", monospaced: false),
+                .init(title: "组成进程", value: L10n.format("%lld 个", item.processCount), explanation: "这些进程使用了同一组服务端口", monospaced: false),
                 at: 1
             )
         }
@@ -2440,12 +2440,12 @@ private struct TechnicalDetailsView: View {
         })).sorted()
         guard !endpoints.isEmpty else { return "—" }
         guard endpoints.count > 3 else { return endpoints.joined(separator: "、") }
-        return "\(endpoints.count) 个端点：\(endpoints.prefix(3).joined(separator: "、"))…"
+        return L10n.format("%lld 个端点：%@…", endpoints.count, endpoints.prefix(3).joined(separator: L10n.string("、")))
     }
 
     private var stateSummary: String {
         let states = Array(Set(item.technicalRecords.compactMap(\.normalizedState))).sorted()
-        if states.isEmpty { return "无（UDP 或系统未提供）" }
+        if states.isEmpty { return L10n.string("无（UDP 或系统未提供）") }
         return states.joined(separator: "、")
     }
 
@@ -2474,7 +2474,7 @@ private struct TechnicalDetailsView: View {
     }
 
     private var parentProcessDescription: String {
-        guard let parentPID = record.parentPID else { return "无法获取" }
+        guard let parentPID = record.parentPID else { return L10n.string("无法获取") }
         if let parent = allRecords.first(where: { $0.pid == parentPID }) {
             return "\(parent.processName)（PID \(parentPID)）"
         }
@@ -2618,10 +2618,10 @@ private struct QueryBanner: View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
                 .foregroundStyle(color)
-            Text(message)
+            Text(L10n.string(message))
                 .lineLimit(2)
             Spacer()
-            Button(actionTitle, action: action)
+            Button(L10n.string(actionTitle), action: action)
                 .buttonStyle(GlassButtonStyle(height: 28, horizontalPadding: 9))
         }
         .font(.callout)
